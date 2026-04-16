@@ -219,11 +219,15 @@ def main():
     global TGI_VERSION
     port = 8080
     args = sys.argv[1:]
-    for arg in args:
+    skip_next = False
+    for i, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
         if arg == "--tgi-version":
-            idx = args.index(arg)
-            if idx + 1 < len(args):
-                TGI_VERSION = int(args[idx + 1])
+            if i + 1 < len(args):
+                TGI_VERSION = int(args[i + 1])
+                skip_next = True
         elif not arg.startswith("-"):
             try:
                 port = int(arg)
