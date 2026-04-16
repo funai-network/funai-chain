@@ -38,7 +38,7 @@
 | Page | Summary | Sources |
 |------|---------|---------|
 | [Security Audit](security-audit.md) | A1-A7 findings (A1 FIXED, A4 VERIFIED, A7 acknowledged). Dispatch audit D1-D4. | Security_Audit_KT, Dispatch_Audit |
-| [Code vs Spec Compliance](code-review.md) | All P0 fixed (P0-6 partial), 3 open P1, 12 P2, 4 P3. | funai-chain-review |
+| [Code vs Spec Compliance](code-review.md) | All P0+P1 fixed (P0-6 partial). Remaining: 12 P2, 4 P3. | funai-chain-review |
 | [Test Plan Status](test-status.md) | 227 scenarios across 6 layers. 73/85 implemented. P0 blockers: E14, S4. | Test plans (4 docs) |
 | [Testnet Configuration](testnet.md) | Chain ID funai-testnet-1, seed 34.87.21.99, TGI 34.143.145.204:8080. 11-step join guide. | Join_Testnet, ops-runbook |
 | [Operations Runbook](operations.md) | Env vars, monitoring metrics, troubleshooting, deployment, emergency procedures. | ops-runbook, Phase4_Guide |

@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -414,7 +415,7 @@ func (n *Node) doRefreshWorkerList(ctx context.Context) {
 		if stake.IsZero() {
 			stake = sdkmath.NewInt(1)
 		}
-		pubkey, _ := hex.DecodeString(e.Pubkey)
+		pubkey := decodePubkey(e.Pubkey)
 
 		maxTasks := e.MaxConcurrentTasks
 		if maxTasks == 0 {
@@ -557,4 +558,16 @@ func shortHex(b []byte) string {
 		return fmt.Sprintf("%x..", b[:8])
 	}
 	return fmt.Sprintf("%x", b)
+}
+
+// decodePubkey decodes a pubkey string that may be base64 (Cosmos SDK default)
+// or hex-encoded. Returns nil if both fail.
+func decodePubkey(s string) []byte {
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil && len(b) == 33 {
+		return b
+	}
+	if b, err := hex.DecodeString(s); err == nil && len(b) == 33 {
+		return b
+	}
+	return nil
 }

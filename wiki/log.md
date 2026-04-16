@@ -1,5 +1,20 @@
 # FunAI Chain Wiki — Operations Log
 
+## [2026-04-16] update | Close all P1 issues
+
+**Operator:** Claude (LLM)
+
+**Fixes:**
+- P1-1: `decodePubkey()` in `p2p/dispatch.go` now tries base64 before hex, fixing VRF mismatch for Cosmos-style pubkeys
+- P1-2: Already fixed — verifier.go hashes actual logits (confirmed by code inspection)
+- P1-5: Already fixed — verifier seed = `task_id || result_hash` (confirmed by code inspection)
+
+**Wiki pages updated:**
+- `wiki/code-review.md` — All P1 moved to Previously Fixed (19/19). Only P2/P3 remain.
+- `wiki/index.md` — Updated code-review summary line.
+
+---
+
 ## [2026-04-16] update | Sync wiki pages with merged fixes and current code
 
 **Operator:** Claude (LLM)
