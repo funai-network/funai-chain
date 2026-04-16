@@ -1,0 +1,17 @@
+{
+  "name": "FunAI",
+  "chain": "FAI",
+  "icon": "funai",
+  "rpc": [],
+  "faucets": [],
+  "nativeCurrency": {
+    "name": "FunAI",
+    "symbol": "FAI",
+    "decimals": 18
+  },
+  "infoURL": "https://github.com/funai-network/funai-chain",
+  "shortName": "funai",
+  "chainId": 123123123,
+  "networkId": 123123123,
+  "explorers": []
+}

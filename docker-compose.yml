@@ -1,0 +1,265 @@
+version: "3.9"
+
+# FunAI Chain — 4-node local testnet
+# Prerequisites: run `make build` and `bash scripts/init-testnet.sh` first.
+#
+# Usage:
+#   TESTNET_DIR=/tmp/funai-testnet docker-compose up -d
+#   docker-compose logs -f node0
+#   docker-compose down -v
+
+x-funaid-common: &funaid-common
+  image: funai-chain:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: funaid
+  restart: unless-stopped
+  volumes:
+    - type: bind
+      source: ${TESTNET_DIR:-/tmp/funai-testnet}
+      target: /testnet
+
+x-funai-node-common: &funai-node-common
+  image: funai-p2p:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: funai-node
+  restart: unless-stopped
+  environment:
+    FUNAI_MODELS: "qwen-0.5b"
+
+services:
+  # ── Chain nodes (funaid) ──────────────────────────────────────────────────
+
+  chain0:
+    <<: *funaid-common
+    container_name: funai-chain0
+    command: start --home /testnet/node0
+    ports:
+      - "26656:26656"   # P2P
+      - "26657:26657"   # RPC
+      - "1317:1317"     # REST
+      - "9090:9090"     # gRPC
+    networks:
+      funai: { ipv4_address: 172.20.0.10 }
+
+  chain1:
+    <<: *funaid-common
+    container_name: funai-chain1
+    command: start --home /testnet/node1
+    ports:
+      - "26658:26658"
+      - "26659:26659"
+      - "1318:1317"
+    networks:
+      funai: { ipv4_address: 172.20.0.11 }
+
+  chain2:
+    <<: *funaid-common
+    container_name: funai-chain2
+    command: start --home /testnet/node2
+    ports:
+      - "26660:26660"
+      - "26661:26661"
+      - "1319:1317"
+    networks:
+      funai: { ipv4_address: 172.20.0.12 }
+
+  chain3:
+    <<: *funaid-common
+    container_name: funai-chain3
+    command: start --home /testnet/node3
+    ports:
+      - "26662:26662"
+      - "26663:26663"
+      - "1320:1317"
+    networks:
+      funai: { ipv4_address: 172.20.0.13 }
+
+  # ── P2P / inference nodes (funai-node) ───────────────────────────────────
+
+  p2p0:
+    <<: *funai-node-common
+    container_name: funai-p2p0
+    environment:
+      FUNAI_LISTEN_ADDR: /ip4/0.0.0.0/tcp/4001
+      FUNAI_CHAIN_RPC: http://chain0:26657
+      FUNAI_TGI_ENDPOINT: http://vllm0:8000
+      FUNAI_MODELS: "qwen-0.5b"
+      FUNAI_WORKER_ADDR: ""        # set to on-chain worker address after registration
+    ports:
+      - "4001:4001"
+      - "9091:9091"   # Prometheus metrics
+    depends_on: [chain0, vllm0]
+    networks:
+      funai: { ipv4_address: 172.20.0.20 }
+
+  p2p1:
+    <<: *funai-node-common
+    container_name: funai-p2p1
+    environment:
+      FUNAI_LISTEN_ADDR: /ip4/0.0.0.0/tcp/4001
+      FUNAI_CHAIN_RPC: http://chain1:26657
+      FUNAI_TGI_ENDPOINT: http://vllm1:8000
+      FUNAI_MODELS: "qwen-0.5b"
+      FUNAI_BOOT_PEERS: "/ip4/172.20.0.20/tcp/4001"
+      FUNAI_WORKER_ADDR: ""
+    ports:
+      - "4002:4001"
+      - "9092:9091"
+    depends_on: [chain1, vllm1, p2p0]
+    networks:
+      funai: { ipv4_address: 172.20.0.21 }
+
+  p2p2:
+    <<: *funai-node-common
+    container_name: funai-p2p2
+    environment:
+      FUNAI_LISTEN_ADDR: /ip4/0.0.0.0/tcp/4001
+      FUNAI_CHAIN_RPC: http://chain2:26657
+      FUNAI_TGI_ENDPOINT: http://vllm2:8000
+      FUNAI_MODELS: "qwen-0.5b"
+      FUNAI_BOOT_PEERS: "/ip4/172.20.0.20/tcp/4001"
+      FUNAI_WORKER_ADDR: ""
+    ports:
+      - "4003:4001"
+      - "9093:9091"
+    depends_on: [chain2, vllm2, p2p0]
+    networks:
+      funai: { ipv4_address: 172.20.0.22 }
+
+  p2p3:
+    <<: *funai-node-common
+    container_name: funai-p2p3
+    environment:
+      FUNAI_LISTEN_ADDR: /ip4/0.0.0.0/tcp/4001
+      FUNAI_CHAIN_RPC: http://chain3:26657
+      FUNAI_TGI_ENDPOINT: http://vllm3:8000
+      FUNAI_MODELS: "qwen-0.5b"
+      FUNAI_BOOT_PEERS: "/ip4/172.20.0.20/tcp/4001"
+      FUNAI_WORKER_ADDR: ""
+    ports:
+      - "4004:4001"
+      - "9094:9091"
+    depends_on: [chain3, vllm3, p2p0]
+    networks:
+      funai: { ipv4_address: 172.20.0.23 }
+
+  # ── vLLM mock inference engines ──────────────────────────────────────────
+  # Replace image with a real vLLM container for production testing.
+  # The mock returns fixed responses compatible with the TGI API.
+
+  vllm0:
+    image: python:3.11-slim
+    container_name: funai-vllm0
+    command: >
+      python3 -c "
+      import json, http.server, threading
+      class H(http.server.BaseHTTPRequestHandler):
+          def log_message(self, *a): pass
+          def do_POST(self):
+              self.send_response(200)
+              self.send_header('Content-Type','application/json')
+              self.end_headers()
+              resp = {'generated_text': 'Hello from mock vLLM node 0', 'tokens': []}
+              self.wfile.write(json.dumps(resp).encode())
+      http.server.HTTPServer(('0.0.0.0', 8000), H).serve_forever()
+      "
+    ports: ["8000:8000"]
+    networks:
+      funai: { ipv4_address: 172.20.0.30 }
+
+  vllm1:
+    image: python:3.11-slim
+    container_name: funai-vllm1
+    command: >
+      python3 -c "
+      import json, http.server
+      class H(http.server.BaseHTTPRequestHandler):
+          def log_message(self, *a): pass
+          def do_POST(self):
+              self.send_response(200)
+              self.send_header('Content-Type','application/json')
+              self.end_headers()
+              self.wfile.write(json.dumps({'generated_text': 'Mock vLLM node 1', 'tokens': []}).encode())
+      http.server.HTTPServer(('0.0.0.0', 8000), H).serve_forever()
+      "
+    ports: ["8001:8000"]
+    networks:
+      funai: { ipv4_address: 172.20.0.31 }
+
+  vllm2:
+    image: python:3.11-slim
+    container_name: funai-vllm2
+    command: >
+      python3 -c "
+      import json, http.server
+      class H(http.server.BaseHTTPRequestHandler):
+          def log_message(self, *a): pass
+          def do_POST(self):
+              self.send_response(200)
+              self.send_header('Content-Type','application/json')
+              self.end_headers()
+              self.wfile.write(json.dumps({'generated_text': 'Mock vLLM node 2', 'tokens': []}).encode())
+      http.server.HTTPServer(('0.0.0.0', 8000), H).serve_forever()
+      "
+    ports: ["8002:8000"]
+    networks:
+      funai: { ipv4_address: 172.20.0.32 }
+
+  vllm3:
+    image: python:3.11-slim
+    container_name: funai-vllm3
+    command: >
+      python3 -c "
+      import json, http.server
+      class H(http.server.BaseHTTPRequestHandler):
+          def log_message(self, *a): pass
+          def do_POST(self):
+              self.send_response(200)
+              self.send_header('Content-Type','application/json')
+              self.end_headers()
+              self.wfile.write(json.dumps({'generated_text': 'Mock vLLM node 3', 'tokens': []}).encode())
+      http.server.HTTPServer(('0.0.0.0', 8000), H).serve_forever()
+      "
+    ports: ["8003:8000"]
+    networks:
+      funai: { ipv4_address: 172.20.0.33 }
+
+  # ── Observability ─────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: funai-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+    networks:
+      funai: { ipv4_address: 172.20.0.40 }
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: funai-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: funai
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    networks:
+      funai: { ipv4_address: 172.20.0.41 }
+
+networks:
+  funai:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  grafana-data:

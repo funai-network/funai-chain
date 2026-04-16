@@ -1,0 +1,25 @@
+{
+  "$schema": "../assetlist.schema.json",
+  "chain_name": "funai",
+  "assets": [
+    {
+      "description": "The native staking and governance token of FunAI Chain, a decentralized AI inference network.",
+      "denom_units": [
+        {
+          "denom": "ufai",
+          "exponent": 0
+        },
+        {
+          "denom": "fai",
+          "exponent": 6
+        }
+      ],
+      "base": "ufai",
+      "name": "FunAI",
+      "display": "fai",
+      "symbol": "FAI",
+      "logo_URIs": {},
+      "type_asset": "sdk.coin"
+    }
+  ]
+}

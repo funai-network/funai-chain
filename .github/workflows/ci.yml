@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ./... -race -count=1 -timeout 10m -coverprofile=coverage.out
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+        continue-on-error: true
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout 5m
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build funaid
+        run: go build -mod=readonly -ldflags "-s -w" -o build/funaid ./cmd/funaid
+
+      - name: Build funai-node
+        run: go build -mod=readonly -ldflags "-s -w" -o build/funai-node ./cmd/funai-node
+
+      - name: Build Docker image (funaid)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: funaid
+          push: false
+          tags: funai-chain:ci
+
+      - name: Build Docker image (funai-node)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: funai-node
+          push: false
+          tags: funai-p2p:ci
+
+  smoke:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build funaid
+        run: go build -mod=readonly -o build/funaid ./cmd/funaid
+
+      - name: Init single node
+        run: |
+          ./build/funaid init smoke-test --chain-id funai-1
+          ./build/funaid keys add validator --keyring-backend test
+          ./build/funaid genesis add-genesis-account validator 100000000000ufai --keyring-backend test
+          ./build/funaid genesis gentx validator 1000000ufai --chain-id funai-1 --keyring-backend test
+          ./build/funaid genesis collect-gentxs
+
+      - name: Validate genesis
+        run: ./build/funaid genesis validate-genesis
+
+      - name: Run node (background) + smoke test
+        run: |
+          ./build/funaid start &
+          NODE_PID=$!
+          sleep 8
+          bash scripts/smoke_test.sh
+          kill $NODE_PID || true

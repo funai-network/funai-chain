@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "funai-p2p-nodes"
+    static_configs:
+      - targets:
+          - "p2p0:9091"
+          - "p2p1:9091"
+          - "p2p2:9091"
+          - "p2p3:9091"
+    metrics_path: /metrics
+
+  - job_name: "cometbft"
+    static_configs:
+      - targets:
+          - "chain0:26660"
+          - "chain1:26660"
+          - "chain2:26660"
+          - "chain3:26660"
+    metrics_path: /metrics

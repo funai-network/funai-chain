@@ -1,0 +1,75 @@
+{
+  "$schema": "../chain.schema.json",
+  "chain_name": "funai",
+  "status": "upcoming",
+  "network_type": "mainnet",
+  "pretty_name": "FunAI",
+  "chain_type": "cosmos",
+  "chain_id": "funai_123123123-3",
+  "bech32_prefix": "funai",
+  "daemon_name": "funaid",
+  "node_home": "$HOME/.funaid",
+  "key_algos": ["secp256k1"],
+  "slip44": 118,
+  "fees": {
+    "fee_tokens": [
+      {
+        "denom": "ufai",
+        "fixed_min_gas_price": 0,
+        "low_gas_price": 0.01,
+        "average_gas_price": 0.025,
+        "high_gas_price": 0.04
+      }
+    ]
+  },
+  "staking": {
+    "staking_tokens": [
+      {
+        "denom": "ufai"
+      }
+    ]
+  },
+  "codebase": {
+    "git_repo": "https://github.com/funai-wiki/funai-chain",
+    "recommended_version": "v1.0.0",
+    "compatible_versions": ["v1.0.0"],
+    "cosmos_sdk_version": "v0.50.13",
+    "consensus": {
+      "type": "cometbft",
+      "version": "v0.38.17"
+    },
+    "genesis": {
+      "genesis_url": ""
+    },
+    "versions": [
+      {
+        "name": "v1.0.0",
+        "recommended_version": "v1.0.0",
+        "compatible_versions": ["v1.0.0"],
+        "cosmos_sdk_version": "v0.50.13",
+        "consensus": {
+          "type": "cometbft",
+          "version": "v0.38.17"
+        }
+      }
+    ]
+  },
+  "peers": {
+    "seeds": [],
+    "persistent_peers": []
+  },
+  "apis": {
+    "rpc": [],
+    "rest": [],
+    "grpc": []
+  },
+  "explorers": [
+    {
+      "kind": "ping.pub",
+      "url": "",
+      "tx_page": "${url}/funai/tx/${txHash}",
+      "account_page": "${url}/funai/account/${accountAddress}"
+    }
+  ],
+  "description": "FunAI Chain is a decentralized AI inference network. The chain acts as a settlement layer (deposits, withdrawals, staking, block rewards) while all inference happens off-chain over libp2p P2P."
+}
