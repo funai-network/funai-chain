@@ -1,5 +1,17 @@
 # FunAI Chain Wiki — Operations Log
 
+## [2026-04-16] ingest | Add FunAI Whitepaper
+
+**Operator:** Claude (LLM)
+
+**Sources ingested (1):**
+- `docs/FunAI_Whitepaper.md` — Public whitepaper (566 lines, 14 sections)
+
+**Wiki pages updated (1):**
+- `wiki/index.md` — Added Whitepaper section at top
+
+---
+
 ## [2026-04-16] ingest | Add 3 new guides (SDK, Worker, Validator)
 
 **Operator:** Claude (LLM)
