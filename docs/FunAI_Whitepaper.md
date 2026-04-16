@@ -71,19 +71,43 @@ FunAI draws on Bitcoin's economic security philosophy: making cheating unprofita
 
 FunAI separates concerns into three distinct layers:
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Layer 3: SDK (User Interface)                      │
-│  Model selection, pricing hints, streaming, retry   │
-├─────────────────────────────────────────────────────┤
-│  Layer 2: libp2p P2P Network (Trading Floor)        │
-│  Dispatch, inference, verification, signatures      │
-│  Hundreds of thousands of messages per second        │
-├─────────────────────────────────────────────────────┤
-│  Layer 1: Cosmos Chain (Bank)                       │
-│  Deposits, withdrawals, settlement, staking         │
-│  CometBFT consensus + Cosmos SDK modules            │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph L3["Layer 3: SDK — User Interface"]
+        direction LR
+        SDK1["Model Selection"]
+        SDK2["Pricing Hints"]
+        SDK3["Streaming Display"]
+        SDK4["Auto-Retry"]
+        SDK5["Privacy\n(PII / TLS / Tor)"]
+    end
+
+    subgraph L2["Layer 2: libp2p P2P Network — Trading Floor"]
+        direction LR
+        P2P1["Leader\nDispatch"]
+        P2P2["Worker\nInference"]
+        P2P3["Verifier\nTeacher Forcing"]
+        P2P4["Proposer\nBatch Evidence"]
+        P2P5["Auditor\nRandom Audit"]
+    end
+
+    subgraph L1["Layer 1: Cosmos Chain — Bank"]
+        direction LR
+        L1A["Deposits &\nWithdrawals"]
+        L1B["Batch\nSettlement"]
+        L1C["Staking &\nSlashing"]
+        L1D["Block\nRewards"]
+        L1E["VRF Validator\nCommittee"]
+    end
+
+    L3 -->|"Signed requests via P2P"| L2
+    L2 -->|"Streaming tokens via P2P"| L3
+    L2 -->|"Settlement txs & audit results"| L1
+    L1 -->|"Balance queries & worker list"| L2
+
+    style L3 fill:#E8F4FD,stroke:#4A90D9,stroke-width:2px,color:#1A3A5C
+    style L2 fill:#FFF3E0,stroke:#F5A623,stroke-width:2px,color:#5A3A0A
+    style L1 fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px,color:#1B5E20
 ```
 
 **Layer 1 (Chain)** processes only low-frequency financial operations: deposits, withdrawals, batch settlements, staking, and block rewards. It uses CometBFT consensus with a VRF-selected 100-validator committee, producing blocks every 5 seconds.
@@ -177,18 +201,47 @@ Hard cap: 17,280 blocks (24 hours).
 
 ### 4.1 End-to-End Flow
 
-```
-User SDK                  Leader              Worker             Verifiers (3)
-   │                        │                    │                    │
-   │── InferRequest ───────>│                    │                    │
-   │                        │── AssignTask ─────>│                    │
-   │                        │<── Accept ─────────│                    │
-   │<── StreamTokens ───────────────────────────│                    │
-   │                        │<── InferReceipt ──│                    │
-   │                        │                    │── VerifyPayload ──>│
-   │                        │                    │<── VerifyResult ───│
-   │                        │                    │                    │
-   │              Proposer collects evidence, batches on-chain       │
+```mermaid
+sequenceDiagram
+    participant User as User SDK
+    participant Leader as Leader
+    participant Worker as Worker
+    participant V as Verifiers (3)
+    participant Chain as Cosmos Chain
+
+    User->>Leader: 1. InferRequest (signed)
+    Note over Leader: VRF rank Workers (α=1.0)
+    Leader->>Worker: 2. AssignTask (rank #1)
+    Worker-->>Leader: 3. Accept (within 1s)
+
+    rect rgb(232, 245, 233)
+        Note over Worker,User: Streaming Inference
+        Worker->>User: 4. StreamTokens (P2P direct)
+        Worker->>User: ... token by token ...
+        Worker->>User: Final token (IsFinal=true)
+    end
+
+    Worker->>Worker: 5. Broadcast InferReceipt
+    Note over Worker: VRF rank Verifiers (α=0.5)
+    Worker->>V: 6. Push prompt + full output to top 3
+
+    rect rgb(227, 242, 253)
+        Note over V: Teacher Forcing (~0.6s)
+        V->>V: Logits check (4/5 positions)
+        V->>V: Sampling check (ChaCha20)
+    end
+
+    V-->>Worker: 7. VerifyResult (PASS/FAIL signed)
+
+    rect rgb(255, 243, 224)
+        Note over Chain: Settlement
+        Worker->>Chain: 8. Evidence via Proposer batch
+        Note over Chain: VRF audit check: 90% CLEARED / 10% PENDING_AUDIT
+        Chain->>Worker: 9. Fee distributed (85%)
+        Chain->>V: 9. Fee distributed (12%)
+    end
+
+    Note over User: SDK verifies result_hash vs InferReceipt
 ```
 
 1. User signs and sends `InferRequest` to the Leader for the target model
@@ -240,13 +293,38 @@ Top-p (nucleus) sampling is supported: tokens are sorted by probability descendi
 
 ### 5.4 Settlement State Machine
 
-```
-VERIFIED ──── VRF check
-  ├── 90% ──── CLEARED ──── BatchSettlement ──── instant payout
-  └── 10% ──── PENDING_AUDIT ──── audit
-                 ├── 99% ──── CLEARED or FAILED
-                 └──  1% ──── PENDING_REAUDIT ──── re-audit
-                                                    └── CLEARED or FAILED
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    [*] --> VERIFIED: Task verified\nby 3 Verifiers
+
+    VERIFIED --> CLEARED: VRF check\n90% pass
+    VERIFIED --> PENDING_AUDIT: VRF check\n10% selected
+
+    CLEARED --> SETTLED: BatchSettlement\ninstant payout
+
+    PENDING_AUDIT --> CLEARED_2: Audit confirms\n(~99%)
+    PENDING_AUDIT --> PENDING_REAUDIT: Selected for\nre-audit (~1%)
+    PENDING_AUDIT --> FAILED: Audit overturns\nWorker jailed
+
+    CLEARED_2 --> SETTLED
+
+    PENDING_REAUDIT --> SETTLED: Re-audit\nconfirms
+    PENDING_REAUDIT --> FAILED: Re-audit\noverturns
+
+    SETTLED --> [*]
+    FAILED --> [*]
+
+    note right of SETTLED
+        SUCCESS: User pays 100% fee
+        Worker 85% / Verifiers 12% / Audit 3%
+    end note
+
+    note right of FAILED
+        FAIL: User pays 5% fee
+        Worker jailed
+    end note
 ```
 
 Audit and re-audit rates are dynamic, adjusted per epoch based on network conditions:
