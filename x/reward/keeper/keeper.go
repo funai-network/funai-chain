@@ -28,6 +28,7 @@ type Keeper struct {
 type BankKeeper interface {
 	MintCoins(ctx context.Context, moduleName string, amounts sdk.Coins) error
 	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+	SendCoinsFromModuleToModule(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error
 	GetBalance(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
 }
 
@@ -35,6 +36,11 @@ type AccountKeeper interface {
 	GetModuleAddress(name string) sdk.AccAddress
 	GetModuleAccount(ctx context.Context, name string) sdk.ModuleAccountI
 }
+
+// MultiVerificationFundName is the module account that receives the 3% block-reward
+// slice of the multi-verification fund (formerly audit fund). Matches x/settlement
+// ModuleName to share a module account with fee-based audit fund accumulation.
+const MultiVerificationFundName = "settlement"
 
 func NewKeeper(
 	cdc codec.BinaryCodec,
@@ -121,16 +127,37 @@ func (k Keeper) DistributeRewards(
 
 	if len(contributions) > 0 {
 		inferenceReward := params.InferenceWeight.MulInt(epochReward).TruncateInt()
-		verificationReward := epochReward.Sub(inferenceReward)
+		verifierReward := params.VerificationWeight.MulInt(epochReward).TruncateInt()
+		// Remainder goes to multi-verification fund (3% by default) to cover dust.
+		fundReward := epochReward.Sub(inferenceReward).Sub(verifierReward)
 
 		if err := k.distributeByContribution(ctx, epoch, inferenceReward, contributions, params); err != nil {
 			return err
 		}
 
-		if verificationReward.IsPositive() && len(verificationContribs) > 0 {
-			if err := k.distributeByVerification(ctx, epoch, verificationReward, verificationContribs); err != nil {
+		if verifierReward.IsPositive() && len(verificationContribs) > 0 {
+			if err := k.distributeByVerification(ctx, epoch, verifierReward, verificationContribs, params); err != nil {
 				return err
 			}
+		}
+
+		// Multi-verification fund: mint into x/reward then transfer to settlement
+		// module account, where it co-mingles with fee-based audit fund accumulation
+		// and is distributed per-epoch to 2nd/3rd verifiers via settlement.DistributeMultiVerificationFund.
+		if fundReward.IsPositive() {
+			coins := sdk.NewCoins(sdk.NewCoin(types.BondDenom, fundReward))
+			if err := k.bankKeeper.MintCoins(ctx, types.ModuleName, coins); err != nil {
+				return err
+			}
+			if err := k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, MultiVerificationFundName, coins); err != nil {
+				return err
+			}
+			ctx.EventManager().EmitEvent(sdk.NewEvent(
+				types.EventTypeRewardDistributed,
+				sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", epoch)),
+				sdk.NewAttribute(types.AttributeKeyRewardAmount, fundReward.String()),
+				sdk.NewAttribute(types.AttributeKeyDistributionMode, "multi_verification_fund"),
+			))
 		}
 		return nil
 	}
@@ -150,8 +177,9 @@ func (k Keeper) DistributeRewards(
 	return nil
 }
 
-// distributeByContribution distributes 99% rewards using the weighted formula:
-// w_i = 0.8 * (fee_i / sum_fee) + 0.2 * (count_i / sum_count)
+// distributeByContribution distributes the 85% inference-pool rewards using:
+// w_i = FeeWeight * (fee_i / sum_fee) + CountWeight * (count_i / sum_count)
+// Default weights: 0.85 fee + 0.15 count.
 func (k Keeper) distributeByContribution(ctx sdk.Context, epoch int64, epochReward math.Int, contributions []types.WorkerContribution, params types.Params) error {
 	totalFees := math.ZeroInt()
 	totalCount := uint64(0)
@@ -203,11 +231,19 @@ func (k Keeper) distributeByContribution(ctx sdk.Context, epoch int64, epochRewa
 	return nil
 }
 
-// distributeByVerification distributes 1% rewards by verification/audit count.
-func (k Keeper) distributeByVerification(ctx sdk.Context, epoch int64, totalReward math.Int, contribs []types.VerificationContribution) error {
+// distributeByVerification distributes the 12% verifier-pool rewards to all verifiers
+// (1st-tier + 2nd/3rd-verifiers) using the same weighted formula as the inference pool:
+// w_i = FeeWeight * (fee_i / sum_fee) + CountWeight * (count_i / sum_count)
+// Default weights: 0.85 fee + 0.15 count. fee_i = verifier's earned fees from verification
+// + 2nd/3rd-verification roles this epoch; count_i = VerificationCount + AuditCount.
+func (k Keeper) distributeByVerification(ctx sdk.Context, epoch int64, totalReward math.Int, contribs []types.VerificationContribution, params types.Params) error {
 	totalCount := uint64(0)
+	totalFee := math.ZeroInt()
 	for _, c := range contribs {
 		totalCount += c.VerificationCount + c.AuditCount
+		if !c.FeeAmount.IsNil() {
+			totalFee = totalFee.Add(c.FeeAmount)
+		}
 	}
 	if totalCount == 0 {
 		return nil
@@ -216,12 +252,26 @@ func (k Keeper) distributeByVerification(ctx sdk.Context, epoch int64, totalRewa
 	totalDistributed := math.ZeroInt()
 	for i, c := range contribs {
 		workerCount := c.VerificationCount + c.AuditCount
+		weight := math.LegacyZeroDec()
+		if totalFee.IsPositive() && !c.FeeAmount.IsNil() && c.FeeAmount.IsPositive() {
+			feeRatio := math.LegacyNewDecFromInt(c.FeeAmount).Quo(math.LegacyNewDecFromInt(totalFee))
+			weight = weight.Add(params.FeeWeight.Mul(feeRatio))
+		}
+		if totalCount > 0 {
+			countRatio := math.LegacyNewDec(int64(workerCount)).Quo(math.LegacyNewDec(int64(totalCount)))
+			weight = weight.Add(params.CountWeight.Mul(countRatio))
+		}
+		// If no fee data available (totalFee == 0), distribute purely by count.
+		if totalFee.IsZero() {
+			countRatio := math.LegacyNewDec(int64(workerCount)).Quo(math.LegacyNewDec(int64(totalCount)))
+			weight = countRatio // 100% by count
+		}
+
 		var alloc math.Int
 		if i == len(contribs)-1 {
 			alloc = totalReward.Sub(totalDistributed)
 		} else {
-			ratio := math.LegacyNewDec(int64(workerCount)).Quo(math.LegacyNewDec(int64(totalCount)))
-			alloc = ratio.MulInt(totalReward).TruncateInt()
+			alloc = weight.MulInt(totalReward).TruncateInt()
 		}
 		if alloc.IsPositive() {
 			if err := k.mintAndSend(ctx, c.WorkerAddress, alloc); err != nil {

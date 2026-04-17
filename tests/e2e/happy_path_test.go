@@ -11,8 +11,8 @@ import (
 	"cosmossdk.io/store"
 	storemetrics "cosmossdk.io/store/metrics"
 	storetypes "cosmossdk.io/store/types"
-	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cometbft/cometbft/crypto/secp256k1"
+	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -66,6 +66,17 @@ func (m *trackingBankKeeper) MintCoins(_ context.Context, moduleName string, amo
 	}
 	for _, c := range amounts {
 		m.minted[moduleName] = m.minted[moduleName].Add(c.Amount)
+	}
+	return nil
+}
+
+func (m *trackingBankKeeper) SendCoinsFromModuleToModule(_ context.Context, _, recipientModule string, amt sdk.Coins) error {
+	key := "module:" + recipientModule
+	if _, ok := m.received[key]; !ok {
+		m.received[key] = math.ZeroInt()
+	}
+	for _, c := range amt {
+		m.received[key] = m.received[key].Add(c.Amount)
 	}
 	return nil
 }
@@ -266,7 +277,7 @@ func TestHappyPath_InferenceToReward(t *testing.T) {
 	verifiers := []string{v1.String(), v2.String(), v3.String()}
 
 	// Disable audit so all tasks settle immediately
-	sk.SetCurrentAuditRate(ctx, 0)
+	sk.SetCurrentSecondVerificationRate(ctx, 0)
 
 	// ========== Phase 2: Deposit ==========
 	deposit := sdk.NewCoin("ufai", math.NewInt(100_000_000_000))
@@ -324,8 +335,8 @@ func TestHappyPath_InferenceToReward(t *testing.T) {
 	//   burn           = 1_000_000 * 10 / 1000 = 10_000
 	//   executor       = 1_000_000 - 30_000 - 10_000 - 10_000 = 950_000
 	perTaskVerifierTotal := fee.Amount.MulRaw(int64(params.VerifierFeeRatio)).QuoRaw(1000)
-	perTaskAuditFund := fee.Amount.MulRaw(int64(params.AuditFundRatio)).QuoRaw(1000)
-	perTaskExecutor := fee.Amount.Sub(perTaskVerifierTotal).Sub(perTaskAuditFund)
+	perTaskMultiVerificationFund := fee.Amount.MulRaw(int64(params.MultiVerificationFundRatio)).QuoRaw(1000)
+	perTaskExecutor := fee.Amount.Sub(perTaskVerifierTotal).Sub(perTaskMultiVerificationFund)
 
 	totalExecutorExpected := perTaskExecutor.MulRaw(int64(taskCount))
 	gotExecutor := bk.receivedBy(workerAddr)
@@ -354,15 +365,15 @@ func TestHappyPath_InferenceToReward(t *testing.T) {
 		totalDistributed = totalDistributed.Add(bk.receivedBy(v))
 	}
 	totalUserCharged := fee.Amount.MulRaw(int64(taskCount))
-	totalAuditFund := perTaskAuditFund.MulRaw(int64(taskCount))
-	expectedDistributed := totalUserCharged.Sub(totalAuditFund)
+	totalMultiVerificationFund := perTaskMultiVerificationFund.MulRaw(int64(taskCount))
+	expectedDistributed := totalUserCharged.Sub(totalMultiVerificationFund)
 	if !totalDistributed.Equal(expectedDistributed) {
 		t.Fatalf("Phase 5 - No-leakage: distributed=%s, expected=%s (user charged=%s, audit fund=%s)",
-			totalDistributed, expectedDistributed, totalUserCharged, totalAuditFund)
+			totalDistributed, expectedDistributed, totalUserCharged, totalMultiVerificationFund)
 	}
 
 	t.Logf("[Phase 5] Fee distribution OK: executor=%s/task, verifier=%s/task each, audit=%s/task, total distributed=%s",
-		perTaskExecutor, perVerifier, perTaskAuditFund, totalDistributed)
+		perTaskExecutor, perVerifier, perTaskMultiVerificationFund, totalDistributed)
 
 	// ========== Phase 6: Epoch Reward Distribution ==========
 	// Reset bk tracking for reward phase
@@ -399,30 +410,40 @@ func TestHappyPath_InferenceToReward(t *testing.T) {
 
 	rewardParams := rk.GetParams(ctx)
 
-	// 99% inference reward → worker (sole contributor)
+	// 85% inference reward → worker (sole contributor)
 	inferenceReward := rewardParams.InferenceWeight.MulInt(epochReward).TruncateInt()
-	// 1% verification reward → split among 3 verifiers equally
-	verificationReward := epochReward.Sub(inferenceReward)
+	// 12% verifier pool → split among 3 verifiers by fee + count weight
+	verifierPool := rewardParams.VerificationWeight.MulInt(epochReward).TruncateInt()
+	// 3% multi-verification fund → sent to settlement module
+	fundReward := epochReward.Sub(inferenceReward).Sub(verifierPool)
 
 	gotWorkerReward := bk.receivedBy(workerAddr)
 	if !gotWorkerReward.Equal(inferenceReward) {
 		t.Fatalf("Phase 6 - Worker inference reward: want %s, got %s", inferenceReward, gotWorkerReward)
 	}
 
-	// Each verifier should get verificationReward / 3 (last gets remainder)
-	perVerifierReward := verificationReward.QuoRaw(3)
-	for i, v := range []sdk.AccAddress{v1, v2, v3} {
+	// Each verifier contributed identical counts; with no per-verifier fee data wired in this test,
+	// the count-weight (15%) dominates and distribution falls back to even-thirds (see
+	// distributeByVerification's totalFee==0 branch). Last verifier may get a small remainder.
+	sumVerifierRewards := math.ZeroInt()
+	for _, v := range []sdk.AccAddress{v1, v2, v3} {
 		got := bk.receivedBy(v)
-		var expected math.Int
-		if i == 2 {
-			// Last verifier gets remainder
-			expected = verificationReward.Sub(perVerifierReward.MulRaw(2))
-		} else {
-			expected = perVerifierReward
+		if got.IsZero() {
+			t.Fatalf("Phase 6 - Verifier %s reward should be positive", v)
 		}
-		if !got.Equal(expected) {
-			t.Fatalf("Phase 6 - Verifier %d reward: want %s, got %s", i, expected, got)
-		}
+		sumVerifierRewards = sumVerifierRewards.Add(got)
+	}
+	if !sumVerifierRewards.Equal(verifierPool) {
+		t.Fatalf("Phase 6 - Sum of verifier rewards: want %s (12%%), got %s", verifierPool, sumVerifierRewards)
+	}
+
+	// 3% multi-verification fund goes to settlement module account via SendCoinsFromModuleToModule.
+	fundReceived := bk.received["module:settlement"]
+	if fundReceived.IsNil() {
+		fundReceived = math.ZeroInt()
+	}
+	if !fundReceived.Equal(fundReward) {
+		t.Fatalf("Phase 6 - Multi-verification fund: want %s (3%%), got %s", fundReward, fundReceived)
 	}
 
 	// Verify RewardRecords are persisted
@@ -434,25 +455,28 @@ func TestHappyPath_InferenceToReward(t *testing.T) {
 		t.Fatalf("Phase 6 - Worker record amount: want %s, got %s", inferenceReward, workerRecords[0].Amount.Amount)
 	}
 
-	// Verify total minted == total distributed (no dust loss beyond 1 ufai tolerance)
+	// Verify total minted == total distributed (no dust loss beyond 1 ufai tolerance).
+	// Note: SendCoinsFromModuleToModule does not mint; only MintCoins mints. So totalMinted
+	// includes the 3% fund (minted at reward module) and totalReceived includes it (tracked
+	// at "module:settlement" by our mock). Both should balance.
 	totalMinted := bk.totalMinted()
 	totalRewarded := bk.totalReceived()
 	if !totalMinted.Equal(totalRewarded) {
 		t.Fatalf("Phase 6 - Mint vs distribute mismatch: minted=%s, distributed=%s", totalMinted, totalRewarded)
 	}
 
-	t.Logf("[Phase 6] Rewards OK: epoch_reward=%s, inference(99%%)=%s→worker, verification(1%%)=%s→3 verifiers, minted=%s",
-		epochReward, inferenceReward, verificationReward, totalMinted)
+	t.Logf("[Phase 6] Rewards OK: epoch_reward=%s, inference(85%%)=%s→worker, verifier(12%%)=%s→3 verifiers, fund(3%%)=%s, minted=%s",
+		epochReward, inferenceReward, sumVerifierRewards, fundReward, totalMinted)
 
 	// ========== Summary ==========
 	t.Log("\n=== HAPPY PATH END-TO-END: ALL PHASES PASSED ===")
 	t.Logf("  Deposit:     %s", deposit)
 	t.Logf("  Tasks:       %d SUCCESS × %s fee", taskCount, fee)
 	t.Logf("  User balance: %s → %s", deposit.Amount, expectedBalance)
-	t.Logf("  Fee split:   executor=%s, verifiers=%s, audit=%s (per task)",
-		perTaskExecutor, perTaskVerifierTotal, perTaskAuditFund)
-	t.Logf("  Rewards:     epoch=%s, inference=%s, verification=%s",
-		epochReward, inferenceReward, verificationReward)
+	t.Logf("  Fee split:   executor=%s, verifiers=%s, multi-verif-fund=%s (per task)",
+		perTaskExecutor, perTaskVerifierTotal, perTaskMultiVerificationFund)
+	t.Logf("  Rewards:     epoch=%s, inference=%s, verifier_pool=%s, fund=%s",
+		epochReward, inferenceReward, sumVerifierRewards, fundReward)
 }
 
 // TestE2E_EpochBoundarySettlement verifies that settlements at epoch boundaries
@@ -472,7 +496,7 @@ func TestE2E_EpochBoundarySettlement(t *testing.T) {
 	proposerAddr := makeAddr("epoch-proposer")
 	verifiers := []string{v1.String(), v2.String(), v3.String()}
 
-	sk.SetCurrentAuditRate(ctx, 0)
+	sk.SetCurrentSecondVerificationRate(ctx, 0)
 
 	deposit := sdk.NewCoin("ufai", math.NewInt(100_000_000_000))
 	if err := sk.ProcessDeposit(ctx, userAddr, deposit); err != nil {

@@ -317,8 +317,8 @@ func TestRewardMintConservation(t *testing.T) {
 		t.Fatalf("DistributeRewards failed: %v", err)
 	}
 
-	// Sum all rewards sent to workers
-	totalDistributed := math.ZeroInt()
+	// Sum all rewards sent to workers (85% inference pool)
+	totalDistributedToWorkers := math.ZeroInt()
 	for _, addr := range []sdk.AccAddress{addr1, addr2, addr3} {
 		sent, ok := bk.sent[addr.String()]
 		if !ok {
@@ -327,24 +327,31 @@ func TestRewardMintConservation(t *testing.T) {
 		if !sent.IsPositive() {
 			t.Fatalf("worker %s reward should be positive, got %s", addr, sent)
 		}
-		totalDistributed = totalDistributed.Add(sent)
+		totalDistributedToWorkers = totalDistributedToWorkers.Add(sent)
 	}
 
-	// Total minted should equal total distributed (no leakage)
+	// 3% goes to multi-verification fund via SendCoinsFromModuleToModule; mock tracks it at "module:settlement".
+	sentToFund := bk.sent["module:settlement"]
+	if sentToFund.IsNil() {
+		sentToFund = math.ZeroInt()
+	}
+	totalDistributed := totalDistributedToWorkers.Add(sentToFund)
+
+	// Total minted should equal total distributed (no leakage) — 85% + 3% = 88% minted;
+	// 12% verifier pool was skipped (no verifier contributions this test).
 	totalMinted := math.ZeroInt()
 	for _, v := range bk.minted {
 		totalMinted = totalMinted.Add(v)
 	}
-
 	if !totalMinted.Equal(totalDistributed) {
 		t.Fatalf("conservation violated: minted=%s, distributed=%s", totalMinted, totalDistributed)
 	}
 
-	// Also verify against expected epoch reward (99% inference pool)
+	// Worker payout should equal the 85% inference pool.
 	epochReward := k.CalculateEpochReward(ctx, 100)
 	inferenceReward := types.DefaultInferenceWeight.MulInt(epochReward).TruncateInt()
-	if !totalDistributed.Equal(inferenceReward) {
-		t.Fatalf("total distributed %s should equal inference reward (99%%) %s",
-			totalDistributed, inferenceReward)
+	if !totalDistributedToWorkers.Equal(inferenceReward) {
+		t.Fatalf("worker distribution %s should equal inference reward (85%%) %s",
+			totalDistributedToWorkers, inferenceReward)
 	}
 }

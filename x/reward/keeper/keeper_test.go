@@ -54,6 +54,18 @@ func (m *mockBankKeeper) SendCoinsFromModuleToAccount(_ context.Context, _ strin
 	return nil
 }
 
+func (m *mockBankKeeper) SendCoinsFromModuleToModule(_ context.Context, _ string, recipientModule string, amt sdk.Coins) error {
+	key := "module:" + recipientModule
+	for _, c := range amt {
+		prev, ok := m.sent[key]
+		if !ok {
+			prev = math.ZeroInt()
+		}
+		m.sent[key] = prev.Add(c.Amount)
+	}
+	return nil
+}
+
 func (m *mockBankKeeper) GetBalance(_ context.Context, _ sdk.AccAddress, _ string) sdk.Coin {
 	return sdk.NewCoin(types.BondDenom, math.ZeroInt())
 }
@@ -296,11 +308,11 @@ func TestDefaultParams_Valid(t *testing.T) {
 	if params.HalvingPeriod != 26_250_000 {
 		t.Fatalf("expected halving period 26250000, got %d", params.HalvingPeriod)
 	}
-	if !params.FeeWeight.Equal(math.LegacyNewDecWithPrec(80, 2)) {
-		t.Fatalf("expected fee_weight 0.80, got %s", params.FeeWeight.String())
+	if !params.FeeWeight.Equal(math.LegacyNewDecWithPrec(85, 2)) {
+		t.Fatalf("expected fee_weight 0.85, got %s", params.FeeWeight.String())
 	}
-	if !params.CountWeight.Equal(math.LegacyNewDecWithPrec(20, 2)) {
-		t.Fatalf("expected count_weight 0.20, got %s", params.CountWeight.String())
+	if !params.CountWeight.Equal(math.LegacyNewDecWithPrec(15, 2)) {
+		t.Fatalf("expected count_weight 0.15, got %s", params.CountWeight.String())
 	}
 	if params.EpochBlocks != 100 {
 		t.Fatalf("expected epoch_blocks 100, got %d", params.EpochBlocks)
@@ -335,14 +347,15 @@ func TestSetAndGetParams(t *testing.T) {
 	k, ctx, _ := setupRewardKeeper(t)
 
 	custom := types.Params{
-		BaseBlockReward:    math.NewInt(2000),
-		HalvingPeriod:      1000,
-		FeeWeight:          math.LegacyNewDecWithPrec(60, 2),
-		CountWeight:        math.LegacyNewDecWithPrec(40, 2),
-		EpochBlocks:        50,
-		TotalSupply:        math.NewInt(100_000_000),
-		InferenceWeight:    math.LegacyNewDecWithPrec(99, 2),
-		VerificationWeight: math.LegacyNewDecWithPrec(1, 2),
+		BaseBlockReward:             math.NewInt(2000),
+		HalvingPeriod:               1000,
+		FeeWeight:                   math.LegacyNewDecWithPrec(60, 2),
+		CountWeight:                 math.LegacyNewDecWithPrec(40, 2),
+		EpochBlocks:                 50,
+		TotalSupply:                 math.NewInt(100_000_000),
+		InferenceWeight:             math.LegacyNewDecWithPrec(85, 2),
+		VerificationWeight:          math.LegacyNewDecWithPrec(12, 2),
+		MultiVerificationFundWeight: math.LegacyNewDecWithPrec(3, 2),
 	}
 	err := k.SetParams(ctx, custom)
 	if err != nil {

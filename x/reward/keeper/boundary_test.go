@@ -213,12 +213,12 @@ func TestGenesis_InvalidParams_Panics(t *testing.T) {
 
 	gs := types.GenesisState{
 		Params: types.Params{
-			BaseBlockReward: math.NewInt(-1), // invalid
-			HalvingPeriod:   1,
-			EpochBlocks:     1,
-			FeeWeight:       math.LegacyZeroDec(),
-			CountWeight:     math.LegacyZeroDec(),
-			InferenceWeight: math.LegacyZeroDec(),
+			BaseBlockReward:    math.NewInt(-1), // invalid
+			HalvingPeriod:      1,
+			EpochBlocks:        1,
+			FeeWeight:          math.LegacyZeroDec(),
+			CountWeight:        math.LegacyZeroDec(),
+			InferenceWeight:    math.LegacyZeroDec(),
 			VerificationWeight: math.LegacyZeroDec(),
 		},
 	}
@@ -442,15 +442,19 @@ func TestDistributeRewards_InferenceAndVerification(t *testing.T) {
 		t.Fatal("both worker and verifier should receive rewards")
 	}
 
-	// Worker gets 99% portion, verifier gets 1%
-	total := sentW.Add(sentV)
+	// Worker gets 85% portion, verifier gets 12%, multi-verification fund gets 3%.
+	sentFund := bk.sent["module:settlement"]
+	if sentFund.IsNil() {
+		sentFund = math.ZeroInt()
+	}
+	total := sentW.Add(sentV).Add(sentFund)
 	epochReward := k.CalculateEpochReward(ctx, 100)
 	if !total.Equal(epochReward) {
-		t.Fatalf("total %s should equal epoch reward %s", total, epochReward)
+		t.Fatalf("total %s (worker + verifier + fund) should equal epoch reward %s", total, epochReward)
 	}
 
-	// Worker should get much more (99% vs 1%)
+	// Worker should get more (85% vs 12%)
 	if sentW.LT(sentV) {
-		t.Fatalf("worker (99%%) should get more than verifier (1%%): %s vs %s", sentW, sentV)
+		t.Fatalf("worker (85%%) should get more than verifier (12%%): %s vs %s", sentW, sentV)
 	}
 }
