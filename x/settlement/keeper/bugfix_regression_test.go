@@ -393,11 +393,11 @@ func TestDistributeFailFee_VerifiersPaidFromFailFee(t *testing.T) {
 	msg := makeBatchMsg(t, makeAddr("proposer").String(), entries)
 	_, _ = k.ProcessBatchSettlement(ctx, msg)
 
-	// failFee = 1M * 50/1000 = 50_000
-	// verifier share of failFee = 50_000 * 120/150 = 40_000  (verifier=120, audit=30, total=150)
-	// per verifier = 40_000 / 3 = 13_333 (last gets 13_334)
+	// failFee = 1M * 150/1000 = 150_000 (15%)
+	// verifier share of failFee = 150_000 * 120/150 = 120_000 (verifier=120, audit=30, total=150)
+	// per verifier = 120_000 / 3 = 40_000
 	totalVerifier := bk.receivedBy(v1).Add(bk.receivedBy(v2)).Add(bk.receivedBy(v3))
-	wantVerifierTotal := math.NewInt(40_000)
+	wantVerifierTotal := math.NewInt(120_000)
 	if !totalVerifier.Equal(wantVerifierTotal) {
 		t.Fatalf("verifier total from FAIL: want %s, got %s", wantVerifierTotal, totalVerifier)
 	}
@@ -701,9 +701,9 @@ func TestBatchSettlement_MixedEntries_OnlyValidProcessed(t *testing.T) {
 		t.Fatalf("want 2 settled (1 success + 1 fail, expired skipped), got %d", br.ResultCount)
 	}
 
-	// User charged: 1M (success) + 50K (5% fail) = 1_050_000
+	// User charged: 1M (success) + 150K (15% fail) = 1_150_000
 	ia, _ := k.GetInferenceAccount(ctx, userAddr)
-	expected := math.NewInt(10_000_000 - 1_000_000 - 50_000)
+	expected := math.NewInt(10_000_000 - 1_000_000 - 150_000)
 	if !ia.Balance.Amount.Equal(expected) {
 		t.Fatalf("balance: want %s, got %s", expected, ia.Balance.Amount)
 	}

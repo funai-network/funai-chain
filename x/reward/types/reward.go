@@ -36,11 +36,14 @@ func (m *WorkerContribution) ProtoMessage()  {}
 func (m *WorkerContribution) Reset()         { *m = WorkerContribution{} }
 func (m *WorkerContribution) String() string { return "reward.WorkerContribution" }
 
-// VerificationContribution tracks verification/audit work for the 1% reward pool (V5.2).
+// VerificationContribution tracks verification + audit (2nd/3rd verification) work
+// for the 12% verifier reward pool. Distributed by 85% fee-weight + 15% count-weight,
+// same as the inference pool.
 type VerificationContribution struct {
-	WorkerAddress     string `protobuf:"bytes,1,opt,name=worker_address,proto3" json:"worker_address"`
-	VerificationCount uint64 `protobuf:"varint,2,opt,name=verification_count,proto3" json:"verification_count"`
-	AuditCount        uint64 `protobuf:"varint,3,opt,name=audit_count,proto3" json:"audit_count"`
+	WorkerAddress     string   `protobuf:"bytes,1,opt,name=worker_address,proto3" json:"worker_address"`
+	VerificationCount uint64   `protobuf:"varint,2,opt,name=verification_count,proto3" json:"verification_count"`
+	AuditCount        uint64   `protobuf:"varint,3,opt,name=audit_count,proto3" json:"audit_count"`
+	FeeAmount         math.Int `protobuf:"bytes,4,opt,name=fee_amount,proto3" json:"fee_amount"` // total fees earned by this verifier+auditor across all roles this epoch
 }
 
 func (m *VerificationContribution) ProtoMessage()  {}

@@ -558,9 +558,9 @@ func TestExpireBlockTooShort(t *testing.T) {
 	// At height 100 (well past expire_block=20), timeout fires
 	k.HandleFrozenBalanceTimeouts(ctx) // ctx has Height=100
 
-	// timeout_fee = 500000 * 50/1000 = 25000; refund = 475000
+	// timeout_fee = 500000 * 150/1000 = 75000; refund = 425000
 	ia, _ := k.GetInferenceAccount(ctx, user)
-	expected := cosmosmath.NewInt(10_000_000 - 25_000)
+	expected := cosmosmath.NewInt(10_000_000 - 75_000)
 	if !ia.Balance.Amount.Equal(expected) {
 		t.Fatalf("E12: expected balance %s, got %s", expected, ia.Balance.Amount)
 	}
@@ -605,12 +605,12 @@ func TestChainHaltRecovery(t *testing.T) {
 		t.Fatalf("E18: expected 5 jail calls after chain halt, got %d", len(wk.jailCalls))
 	}
 
-	// Each user should have: 1M - 200K(frozen) + (200K - 10K timeout)(refund) = 990000
+	// Each user should have: 1M - 200K(frozen) + (200K - 30K timeout)(refund) = 970000
 	for i := 0; i < 5; i++ {
 		user := makeAddr(fmt.Sprintf("e18-user%d", i))
 		ia, _ := k.GetInferenceAccount(ctx, user)
-		// timeout_fee = 200000 * 50/1000 = 10000
-		expected := cosmosmath.NewInt(1_000_000 - 10_000)
+		// timeout_fee = 200000 * 150/1000 = 30000
+		expected := cosmosmath.NewInt(1_000_000 - 30_000)
 		if !ia.Balance.Amount.Equal(expected) {
 			t.Fatalf("E18: user%d expected %s, got %s", i, expected, ia.Balance.Amount)
 		}

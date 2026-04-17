@@ -80,9 +80,9 @@ func TestBatchSettlement_MixedSuccessAndFail(t *testing.T) {
 		t.Fatalf("expected 3 results (2 success + 1 fail), got %d", br.ResultCount)
 	}
 
-	// 2 success = 2M, 1 fail = 1M*50/1000 = 50K → total deducted = 2_050_000
+	// 2 success = 2M, 1 fail = 1M*150/1000 = 150K → total deducted = 2_150_000
 	ia, _ := k.GetInferenceAccount(ctx, user)
-	expected := math.NewInt(10_000_000 - 2_000_000 - 50_000)
+	expected := math.NewInt(10_000_000 - 2_000_000 - 150_000)
 	if !ia.Balance.Amount.Equal(expected) {
 		t.Fatalf("expected %s, got %s", expected, ia.Balance.Amount)
 	}

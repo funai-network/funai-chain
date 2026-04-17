@@ -439,40 +439,124 @@ func (k Keeper) IncrementAuditorEpochCount(ctx sdk.Context, auditorAddr string) 
 	store.Set(key, buf)
 }
 
-// VerifierAuditorEpochCounts holds per-worker verification and audit counts for an epoch.
+// IncrementVerifierEpochFee adds to a verifier's epoch fee total. Used for the
+// amount-weighted portion of verifier block reward distribution (85/15 weighting).
+func (k Keeper) IncrementVerifierEpochFee(ctx sdk.Context, verifierAddr string, amount math.Int) {
+	if amount.IsNil() || !amount.IsPositive() {
+		return
+	}
+	addr, err := sdk.AccAddressFromBech32(verifierAddr)
+	if err != nil {
+		return
+	}
+	store := ctx.KVStore(k.storeKey)
+	key := types.VerifierEpochFeeKey(addr)
+	total := math.ZeroInt()
+	if bz := store.Get(key); len(bz) > 0 {
+		_ = total.Unmarshal(bz)
+	}
+	total = total.Add(amount)
+	if out, err := total.Marshal(); err == nil {
+		store.Set(key, out)
+	}
+}
+
+// IncrementAuditorEpochFee adds to a 2nd/3rd-verifier's epoch fee total.
+func (k Keeper) IncrementAuditorEpochFee(ctx sdk.Context, auditorAddr string, amount math.Int) {
+	if amount.IsNil() || !amount.IsPositive() {
+		return
+	}
+	addr, err := sdk.AccAddressFromBech32(auditorAddr)
+	if err != nil {
+		return
+	}
+	store := ctx.KVStore(k.storeKey)
+	key := types.AuditorEpochFeeKey(addr)
+	total := math.ZeroInt()
+	if bz := store.Get(key); len(bz) > 0 {
+		_ = total.Unmarshal(bz)
+	}
+	total = total.Add(amount)
+	if out, err := total.Marshal(); err == nil {
+		store.Set(key, out)
+	}
+}
+
+// VerifierAuditorEpochCounts holds per-worker verification and 2nd/3rd-verification
+// counts AND fees for an epoch. Fees are used for the 85% amount-weight in block
+// reward distribution; counts for the 15% count-weight.
 type VerifierAuditorEpochCounts struct {
 	Address           string
 	VerificationCount uint64
 	AuditCount        uint64
+	VerificationFee   math.Int
+	AuditFee          math.Int
+}
+
+// TotalFee returns total fees earned across verification + 2nd/3rd-verification roles.
+func (c VerifierAuditorEpochCounts) TotalFee() math.Int {
+	vFee := c.VerificationFee
+	if vFee.IsNil() {
+		vFee = math.ZeroInt()
+	}
+	aFee := c.AuditFee
+	if aFee.IsNil() {
+		aFee = math.ZeroInt()
+	}
+	return vFee.Add(aFee)
 }
 
 func (k Keeper) GetAllVerifierAuditorEpochCounts(ctx sdk.Context) []VerifierAuditorEpochCounts {
 	store := ctx.KVStore(k.storeKey)
 	merged := make(map[string]*VerifierAuditorEpochCounts)
+	ensure := func(addr string) *VerifierAuditorEpochCounts {
+		if _, ok := merged[addr]; !ok {
+			merged[addr] = &VerifierAuditorEpochCounts{
+				Address:         addr,
+				VerificationFee: math.ZeroInt(),
+				AuditFee:        math.ZeroInt(),
+			}
+		}
+		return merged[addr]
+	}
 
 	// Verification counts
 	vIter := storetypes.KVStorePrefixIterator(store, types.VerifierEpochCountKeyPrefix)
 	for ; vIter.Valid(); vIter.Next() {
 		addr := sdk.AccAddress(vIter.Key()[len(types.VerifierEpochCountKeyPrefix):]).String()
 		count := binary.BigEndian.Uint64(vIter.Value())
-		if _, ok := merged[addr]; !ok {
-			merged[addr] = &VerifierAuditorEpochCounts{Address: addr}
-		}
-		merged[addr].VerificationCount = count
+		ensure(addr).VerificationCount = count
 	}
 	vIter.Close()
 
-	// Audit counts
+	// 2nd/3rd-verification counts
 	aIter := storetypes.KVStorePrefixIterator(store, types.AuditorEpochCountKeyPrefix)
 	for ; aIter.Valid(); aIter.Next() {
 		addr := sdk.AccAddress(aIter.Key()[len(types.AuditorEpochCountKeyPrefix):]).String()
 		count := binary.BigEndian.Uint64(aIter.Value())
-		if _, ok := merged[addr]; !ok {
-			merged[addr] = &VerifierAuditorEpochCounts{Address: addr}
-		}
-		merged[addr].AuditCount = count
+		ensure(addr).AuditCount = count
 	}
 	aIter.Close()
+
+	// Verification fees
+	vfIter := storetypes.KVStorePrefixIterator(store, types.VerifierEpochFeeKeyPrefix)
+	for ; vfIter.Valid(); vfIter.Next() {
+		addr := sdk.AccAddress(vfIter.Key()[len(types.VerifierEpochFeeKeyPrefix):]).String()
+		amt := math.ZeroInt()
+		_ = amt.Unmarshal(vfIter.Value())
+		ensure(addr).VerificationFee = amt
+	}
+	vfIter.Close()
+
+	// 2nd/3rd-verification fees
+	afIter := storetypes.KVStorePrefixIterator(store, types.AuditorEpochFeeKeyPrefix)
+	for ; afIter.Valid(); afIter.Next() {
+		addr := sdk.AccAddress(afIter.Key()[len(types.AuditorEpochFeeKeyPrefix):]).String()
+		amt := math.ZeroInt()
+		_ = amt.Unmarshal(afIter.Value())
+		ensure(addr).AuditFee = amt
+	}
+	afIter.Close()
 
 	var result []VerifierAuditorEpochCounts
 	for _, v := range merged {
@@ -483,7 +567,11 @@ func (k Keeper) GetAllVerifierAuditorEpochCounts(ctx sdk.Context) []VerifierAudi
 
 func (k Keeper) ClearVerifierAuditorEpochCounts(ctx sdk.Context) {
 	store := ctx.KVStore(k.storeKey)
-	for _, prefix := range [][]byte{types.VerifierEpochCountKeyPrefix, types.AuditorEpochCountKeyPrefix} {
+	prefixes := [][]byte{
+		types.VerifierEpochCountKeyPrefix, types.AuditorEpochCountKeyPrefix,
+		types.VerifierEpochFeeKeyPrefix, types.AuditorEpochFeeKeyPrefix,
+	}
+	for _, prefix := range prefixes {
 		iter := storetypes.KVStorePrefixIterator(store, prefix)
 		var keys [][]byte
 		for ; iter.Valid(); iter.Next() {
@@ -982,7 +1070,7 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 					k.workerKeeper.JailWorker(ctx, workerAddr, 0)
 				}
 			} else {
-				// Per-request FAIL: charge 5% failFee
+				// Per-request FAIL: charge FailSettlementFeeRatio (default 15%) failFee
 				failFee := sdk.NewCoin(entry.Fee.Denom, entry.Fee.Amount.MulRaw(int64(params.FailSettlementFeeRatio)).QuoRaw(1000))
 				if ia.Balance.IsLT(failFee) {
 					continue
@@ -1034,8 +1122,8 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 }
 
 // distributeSuccessFee distributes SUCCESS task fee per V5.2 §11:
-// 95% executor, 4.5% verifiers (3 × 1.5%), 0.5% audit fund.
-// Executor gets the remainder after verifiers + audit to prevent dust loss.
+// 85% executor, 12% verifiers (3 × 4%), 3% multi-verification fund (audit fund).
+// Executor gets the remainder after verifiers + fund to prevent dust loss.
 func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr sdk.AccAddress, verifiers []types.VerifierResult, params types.Params) {
 	totalVerifierAmount := fee.Amount.MulRaw(int64(params.VerifierFeeRatio)).QuoRaw(1000)
 	auditFundAmount := fee.Amount.MulRaw(int64(params.AuditFundRatio)).QuoRaw(1000)
@@ -1056,6 +1144,7 @@ func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr s
 			if vCoin.IsPositive() {
 				coins := sdk.NewCoins(vCoin)
 				_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, vAddr, coins)
+				k.IncrementVerifierEpochFee(ctx, v.Address, amount)
 			}
 			verifierDistributed = verifierDistributed.Add(amount)
 		}
@@ -1069,8 +1158,9 @@ func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr s
 	}
 }
 
-// distributeFailFee distributes FAIL task fee (5% of original): verifiers 4.5% + audit fund 0.5%.
-// Per spec: failFee = 5% of original. Verifiers get 4.5/5.0 of failFee, audit fund gets 0.5/5.0.
+// distributeFailFee distributes FAIL task fee (15% of original): verifiers 12% + multi-verification fund 3%.
+// Split ratio between verifiers and fund matches the non-executor portion of the success-fee split
+// (VerifierFeeRatio / (VerifierFeeRatio + AuditFundRatio)).
 func (k Keeper) distributeFailFee(ctx sdk.Context, failFee sdk.Coin, verifiers []types.VerifierResult, params types.Params) {
 	if len(verifiers) > 0 {
 		totalVerifierRatio := params.VerifierFeeRatio
@@ -1092,11 +1182,12 @@ func (k Keeper) distributeFailFee(ctx sdk.Context, failFee sdk.Coin, verifiers [
 			if vCoin.IsPositive() {
 				coins := sdk.NewCoins(vCoin)
 				_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, vAddr, coins)
+				k.IncrementVerifierEpochFee(ctx, v.Address, amount)
 			}
 			distributed = distributed.Add(amount)
 		}
 	}
-	// Remaining (audit fund portion = 0.5/5.0 of failFee) stays in module account,
+	// Remaining (multi-verification-fund portion = 3/15 of failFee) stays in module account,
 	// distributed per-epoch via DistributeAuditFund in EndBlocker.
 }
 
@@ -1153,6 +1244,7 @@ func (k Keeper) DistributeAuditFund(ctx sdk.Context, epoch int64) {
 		coin := sdk.NewCoin("ufai", amount)
 		if coin.IsPositive() {
 			_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, addr, sdk.NewCoins(coin))
+			k.IncrementAuditorEpochFee(ctx, vAddr, amount)
 			distributed++
 		}
 	}

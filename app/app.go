@@ -423,7 +423,8 @@ func NewFunAIApp(
 			return nil
 		}
 
-		// Return actual per-worker verification and audit counts
+		// Return actual per-worker verification/2nd-3rd-verification counts and fees.
+		// Fees are used for the 85% amount-weighted portion of the 12% verifier reward pool.
 		counts := app.SettlementKeeper.GetAllVerifierAuditorEpochCounts(ctx)
 		var contribs []rewardtypes.VerificationContribution
 		for _, c := range counts {
@@ -431,6 +432,7 @@ func NewFunAIApp(
 				WorkerAddress:     c.Address,
 				VerificationCount: c.VerificationCount,
 				AuditCount:        c.AuditCount,
+				FeeAmount:         c.TotalFee(),
 			})
 		}
 

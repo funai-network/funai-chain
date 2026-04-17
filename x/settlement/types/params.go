@@ -7,7 +7,7 @@ const (
 	DefaultExecutorFeeRatio       uint32 = 850  // 85.0% — Audit KT §8: worker_reward
 	DefaultVerifierFeeRatio       uint32 = 120  // 12.0% — Audit KT §8: verifier_reward (3 verifiers, ~4% each)
 	DefaultAuditFundRatio         uint32 = 30   // 3.0%  — Audit KT §8: audit_fund (independent)
-	DefaultFailSettlementFeeRatio uint32 = 50
+	DefaultFailSettlementFeeRatio uint32 = 150 // 15% — matches verifier 12% + audit fund 3% (= non-worker share of success fee)
 	DefaultAuditVerifierCount     uint32 = 3
 	DefaultAuditMatchThreshold    uint32 = 2
 	DefaultTaskCleanupBuffer      int64  = 1000

@@ -146,7 +146,7 @@ func TestPerToken_FailBilling(t *testing.T) {
 	worker := makeAddr("pt4-worker")
 	_ = k.ProcessDeposit(ctx, user, sdk.NewCoin("ufai", cosmosmath.NewInt(10_000_000)))
 
-	// actual = 100*100 + 200*200 = 50000; fail_fee = 50000 * 50/1000 = 2500
+	// actual = 100*100 + 200*200 = 50000; fail_fee = 50000 * 150/1000 = 7500 (15%)
 	entry := makePerTokenEntry("pt4-task", user, worker, 100, 200, 100000, 100, 200, 100, 200, types.SettlementFail)
 	// Fail entries need verifiers voting fail
 	entry.VerifierResults[0].Pass = true
@@ -160,8 +160,8 @@ func TestPerToken_FailBilling(t *testing.T) {
 	}
 
 	ia, _ := k.GetInferenceAccount(ctx, user)
-	// fail_fee = 50000 * 50 / 1000 = 2500
-	expected := cosmosmath.NewInt(10_000_000 - 2500)
+	// fail_fee = 50000 * 150 / 1000 = 7500 (15%)
+	expected := cosmosmath.NewInt(10_000_000 - 7500)
 	if !ia.Balance.Amount.Equal(expected) {
 		t.Fatalf("PT4: expected balance %s, got %s", expected, ia.Balance.Amount)
 	}
@@ -312,9 +312,9 @@ func TestPerToken_TimeoutFee(t *testing.T) {
 	k.HandleFrozenBalanceTimeouts(ctx)
 
 	ia, _ := k.GetInferenceAccount(ctx, user)
-	// timeout_fee = 1000000 * 50/1000 = 50000; refund = 1000000 - 50000 = 950000
-	// balance = 10M - 1M (frozen) + 950000 (refund) = 9950000
-	expected := cosmosmath.NewInt(9_950_000)
+	// timeout_fee = 1000000 * 150/1000 = 150000; refund = 1000000 - 150000 = 850000
+	// balance = 10M - 1M (frozen) + 850000 (refund) = 9850000
+	expected := cosmosmath.NewInt(9_850_000)
 	if !ia.Balance.Amount.Equal(expected) {
 		t.Fatalf("PT8: expected balance %s, got %s", expected, ia.Balance.Amount)
 	}

@@ -35,6 +35,8 @@ var (
 	FrozenBalanceKeyPrefix          = []byte{0x15} // S9: per-task frozen max_fee
 	FrozenTaskIndexKeyPrefix        = []byte{0x16} // S9: expireBlock→taskId index for timeout scan
 	TokenMismatchKeyPrefix          = []byte{0x17} // S9: Worker-Verifier pair mismatch tracking
+	VerifierEpochFeeKeyPrefix       = []byte{0x18} // per-worker verification-fee earned in epoch (for 85/15 reward weighting)
+	AuditorEpochFeeKeyPrefix        = []byte{0x19} // per-worker 2nd/3rd-verification-fee earned in epoch
 )
 
 func InferenceAccountKey(userAddr []byte) []byte {
@@ -91,6 +93,16 @@ func VerifierEpochCountKey(workerAddr []byte) []byte {
 // AuditorEpochCountKey returns the key for an auditor's epoch audit count.
 func AuditorEpochCountKey(workerAddr []byte) []byte {
 	return append(AuditorEpochCountKeyPrefix, workerAddr...)
+}
+
+// VerifierEpochFeeKey returns the key for a verifier's epoch fee-earned total.
+func VerifierEpochFeeKey(workerAddr []byte) []byte {
+	return append(VerifierEpochFeeKeyPrefix, workerAddr...)
+}
+
+// AuditorEpochFeeKey returns the key for an auditor's (2nd/3rd verifier) epoch fee-earned total.
+func AuditorEpochFeeKey(workerAddr []byte) []byte {
+	return append(AuditorEpochFeeKeyPrefix, workerAddr...)
 }
 
 // BlockSignerCountKey returns key for a validator's block signing count.

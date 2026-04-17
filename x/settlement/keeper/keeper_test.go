@@ -435,9 +435,9 @@ func TestProcessBatchSettlement_Fail(t *testing.T) {
 		t.Fatalf("jail called for wrong worker")
 	}
 
-	// FAIL fee = fee * 50/1000 = 50_000
+	// FAIL fee = fee * 150/1000 = 150_000 (15%)
 	ia, _ := k.GetInferenceAccount(ctx, userAddr)
-	failFee := math.NewInt(1_000_000).MulRaw(50).QuoRaw(1000)
+	failFee := math.NewInt(1_000_000).MulRaw(150).QuoRaw(1000)
 	expected := math.NewInt(2_000_000).Sub(failFee)
 	if !ia.Balance.Amount.Equal(expected) {
 		t.Fatalf("expected balance %s, got %s", expected, ia.Balance.Amount)

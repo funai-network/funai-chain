@@ -98,7 +98,7 @@ func TestIntegration_FullSettlementLifecycle(t *testing.T) {
 	}
 
 	ia, _ = k.GetInferenceAccount(ctx, userAddr)
-	failFee := fee.Amount.MulRaw(50).QuoRaw(1000) // 5%
+	failFee := fee.Amount.MulRaw(150).QuoRaw(1000) // 15%
 	expectedBal = expectedBal.Sub(failFee.MulRaw(2))
 	if !ia.Balance.Amount.Equal(expectedBal) {
 		t.Fatalf("After FAIL: want %s, got %s", expectedBal, ia.Balance.Amount)
@@ -106,7 +106,7 @@ func TestIntegration_FullSettlementLifecycle(t *testing.T) {
 	if len(wk.jailCalls) != 2 {
 		t.Fatalf("Jail calls: want 2, got %d", len(wk.jailCalls))
 	}
-	t.Logf("[PASS] Batch %d: 2 FAIL, user charged 5%%, worker jailed %d times", batchId2, len(wk.jailCalls))
+	t.Logf("[PASS] Batch %d: 2 FAIL, user charged 15%%, worker jailed %d times", batchId2, len(wk.jailCalls))
 
 	// 4. Duplicate task_id protection
 	dupEntries := integrationEntries(userAddr.String(), workerAddr.String(), verifiers, 1, types.SettlementSuccess, fee, 100000, 0) // same offset=0

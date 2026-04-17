@@ -139,10 +139,10 @@ func TestAuditPass_ConfirmsSuccess_NoJail(t *testing.T) {
 }
 
 // ============================================================
-// 3. FAIL→FAIL audit (confirms FAIL): user pays 5%, worker jailed
+// 3. FAIL→FAIL audit (confirms FAIL): user pays 15%, worker jailed
 // ============================================================
 
-func TestAuditConfirmsFail_UserPays5Percent(t *testing.T) {
+func TestAuditConfirmsFail_UserPays15Percent(t *testing.T) {
 	k, ctx, _, wk := setupTrackingKeeper(t)
 	k.SetCurrentAuditRate(ctx, 0)
 	k.SetCurrentReauditRate(ctx, 0)
@@ -180,12 +180,12 @@ func TestAuditConfirmsFail_UserPays5Percent(t *testing.T) {
 		t.Fatal("worker should be jailed when audit confirms FAIL")
 	}
 
-	// User pays 5% fail fee = 50_000
+	// User pays 15% fail fee = 150_000
 	ia, _ := k.GetInferenceAccount(ctx, userAddr)
-	failFee := math.NewInt(1_000_000).MulRaw(50).QuoRaw(1000)
+	failFee := math.NewInt(1_000_000).MulRaw(150).QuoRaw(1000)
 	expected := math.NewInt(10_000_000).Sub(failFee)
 	if !ia.Balance.Amount.Equal(expected) {
-		t.Fatalf("expected balance %s (5%% deducted), got %s", expected, ia.Balance.Amount)
+		t.Fatalf("expected balance %s (15%% deducted), got %s", expected, ia.Balance.Amount)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestBatchSettlement_MultiUser_OneInsufficientBalance(t *testing.T) {
 }
 
 // ============================================================
-// 5. FAIL settlement with insufficient balance for 5% fail fee
+// 5. FAIL settlement with insufficient balance for 15% fail fee
 // ============================================================
 
 func TestBatchSettlement_FailInsufficientForFailFee(t *testing.T) {
@@ -262,7 +262,7 @@ func TestBatchSettlement_FailInsufficientForFailFee(t *testing.T) {
 	userAddr := makeAddr("fail-insuff-user")
 	worker := makeAddr("fail-insuff-wrk")
 
-	// Deposit 30 ufai. Fail fee = 1M * 50/1000 = 50_000. 30 < 50_000 → skip
+	// Deposit 30 ufai. Fail fee = 1M * 150/1000 = 150_000. 30 < 150_000 → skip
 	_ = k.ProcessDeposit(ctx, userAddr, sdk.NewCoin("ufai", math.NewInt(30)))
 
 	entries := []types.SettlementEntry{
@@ -1424,7 +1424,7 @@ func TestBatchSettlement_ExactBalanceEqualsFee(t *testing.T) {
 }
 
 // ============================================================
-// L3. FAIL task with balance less than 5% fail fee:
+// L3. FAIL task with balance less than 15% fail fee:
 //     task should be skipped, balance unchanged
 // ============================================================
 
@@ -1435,8 +1435,8 @@ func TestBatchSettlement_FailTaskOverspend(t *testing.T) {
 	userAddr := makeAddr("failoverspd-user")
 	workerAddr := makeAddr("failoverspd-wkr")
 
-	// Deposit 40_000 ufai. Fail fee = 1_000_000 * 50/1000 = 50_000. 40_000 < 50_000 → skip
-	_ = k.ProcessDeposit(ctx, userAddr, sdk.NewCoin("ufai", math.NewInt(40_000)))
+	// Deposit 140_000 ufai. Fail fee = 1_000_000 * 150/1000 = 150_000. 140_000 < 150_000 → skip
+	_ = k.ProcessDeposit(ctx, userAddr, sdk.NewCoin("ufai", math.NewInt(140_000)))
 
 	entries := []types.SettlementEntry{
 		{
@@ -1464,8 +1464,8 @@ func TestBatchSettlement_FailTaskOverspend(t *testing.T) {
 	}
 
 	ia, _ := k.GetInferenceAccount(ctx, userAddr)
-	if !ia.Balance.Amount.Equal(math.NewInt(40_000)) {
-		t.Fatalf("balance should be unchanged at 40_000, got %s", ia.Balance.Amount)
+	if !ia.Balance.Amount.Equal(math.NewInt(140_000)) {
+		t.Fatalf("balance should be unchanged at 140_000, got %s", ia.Balance.Amount)
 	}
 
 	if len(wk.jailCalls) != 0 {
@@ -1513,8 +1513,8 @@ func TestFeeConservation_SuccessAndFail(t *testing.T) {
 	// Calculate expected user deduction
 	// SUCCESS: 10 * 1_000_000 = 10_000_000
 	successDeduction := math.NewInt(10_000_000)
-	// FAIL: 2 * 1_000_000 * 50/1000 = 100_000
-	failDeduction := math.NewInt(1_000_000).MulRaw(50).QuoRaw(1000).MulRaw(2)
+	// FAIL: 2 * 1_000_000 * 150/1000 = 300_000 (15% fail fee)
+	failDeduction := math.NewInt(1_000_000).MulRaw(150).QuoRaw(1000).MulRaw(2)
 	totalDeduction := successDeduction.Add(failDeduction)
 
 	ia, _ := k.GetInferenceAccount(ctx, userAddr)
@@ -1523,19 +1523,19 @@ func TestFeeConservation_SuccessAndFail(t *testing.T) {
 		t.Fatalf("user deduction mismatch: expected %s, got %s", totalDeduction, actualDeduction)
 	}
 
-	// Verify total distributed via bank + audit fund == total deduction from user balance.
-	// Audit fund (0.5%) stays in module account and is NOT sent via SendCoinsFromModuleToAccount,
+	// Verify total distributed via bank + multi-verification fund == total deduction from user balance.
+	// Multi-verification fund (3%) stays in module account and is NOT sent via SendCoinsFromModuleToAccount,
 	// so the tracking bank does not record it. We must account for it separately.
 	totalDistributed := math.ZeroInt()
 	for _, amt := range bk.received {
 		totalDistributed = totalDistributed.Add(amt)
 	}
 
-	// Module-retained funds (audit only, no burn): not sent via bank, stays in module account.
-	// Ratios: executor=850, verifier=120, audit=30 (per-mille, no burn).
-	// For SUCCESS: audit = fee * 30/1000 = 30_000 per task × 10 = 300_000
-	// For FAIL: failFee = fee * 50/1000 = 50_000. verifiers get 50_000*120/150=40_000. Module retains 50_000-40_000=10_000 per task × 2 = 20_000
-	totalAuditFund := math.NewInt(30_000).MulRaw(10).Add(math.NewInt(10_000).MulRaw(2)) // 320_000
+	// Module-retained funds (multi-verification fund only, no burn): not sent via bank, stays in module account.
+	// Ratios: executor=850, verifier=120, audit=30 (per-mille).
+	// For SUCCESS: fund = fee * 30/1000 = 30_000 per task × 10 = 300_000
+	// For FAIL: failFee = fee * 150/1000 = 150_000. Verifiers get 150_000*120/150 = 120_000. Module retains 150_000-120_000=30_000 per task × 2 = 60_000
+	totalAuditFund := math.NewInt(30_000).MulRaw(10).Add(math.NewInt(30_000).MulRaw(2)) // 360_000
 
 	totalAccountedFor := totalDistributed.Add(totalAuditFund)
 	if !totalAccountedFor.Equal(totalDeduction) {
