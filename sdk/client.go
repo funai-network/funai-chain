@@ -367,13 +367,7 @@ func (c *Client) Infer(ctx context.Context, params InferParams) (*InferResult, e
 				// M7: verify result_hash against Worker's InferReceipt
 				if workerReceipt != nil {
 					// P3-4: verify Worker's signature on the receipt before trusting it
-					receiptSigValid := false
-					if len(workerReceipt.WorkerPubkey) == 33 && len(workerReceipt.WorkerSig) > 0 {
-						sigBytes := workerReceipt.SignBytes()
-						msgHash := sha256.Sum256(sigBytes)
-						pk := secp256k1.PubKey(workerReceipt.WorkerPubkey)
-						receiptSigValid = pk.VerifySignature(msgHash[:], workerReceipt.WorkerSig)
-					}
+					receiptSigValid := verifyWorkerReceiptSig(workerReceipt)
 					if !receiptSigValid {
 						log.Printf("SDK: Worker receipt signature invalid for task %x, ignoring", taskId[:8])
 					} else if !bytes.Equal(resultHash[:], workerReceipt.ResultHash) {
@@ -389,6 +383,27 @@ func (c *Client) Infer(ctx context.Context, params InferParams) (*InferResult, e
 			retryTimer.Reset(c.InferTimeout)
 		}
 	}
+}
+
+// verifyWorkerReceiptSig checks a Worker's secp256k1 signature on an InferReceipt.
+//
+// Must stay byte-for-byte identical to the signer in p2p/worker.signReceipt and
+// the verifier in p2p/verifier.verifyWorkerPayloadSignature, both of which pass
+// receipt.SignBytes() directly to the cometbft Sign/VerifySignature primitives.
+// Those primitives internally sha256 their input once (cometbft/crypto/secp256k1
+// Sign:L131 and VerifySignature:L214), so adding an explicit sha256.Sum256 on
+// top of SignBytes() here would produce a 3-layer digest while Worker/Verifier
+// use a 2-layer digest — every receipt would fail verification. The previous
+// version of this function had exactly that bug.
+func verifyWorkerReceiptSig(receipt *p2ptypes.InferReceipt) bool {
+	if receipt == nil {
+		return false
+	}
+	if len(receipt.WorkerPubkey) != 33 || len(receipt.WorkerSig) == 0 {
+		return false
+	}
+	pk := secp256k1.PubKey(receipt.WorkerPubkey)
+	return pk.VerifySignature(receipt.SignBytes(), receipt.WorkerSig)
 }
 
 // submitFraudProof submits a MsgFraudProof to the chain when Worker
