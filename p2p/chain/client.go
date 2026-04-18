@@ -590,6 +590,81 @@ func (c *Client) BroadcastSettlement(ctx context.Context, msg *settlementtypes.M
 	return hash, nil
 }
 
+// BroadcastAuditBatch builds, signs, and broadcasts a
+// MsgSecondVerificationResultBatch (D2 / issue #9). Shares the tx-build
+// scaffolding with BroadcastSettlement — only the msg and gas scaling
+// differ. Per-entry cost is a pubkey lookup + secp256k1 verify + state
+// read/write, so gas scales with entry count.
+func (c *Client) BroadcastAuditBatch(ctx context.Context, msg *settlementtypes.MsgSecondVerificationResultBatch, privKey []byte, fromAddr string, chainId string) (string, error) {
+	txCfg := c.getTxConfig()
+
+	accNum, seq, err := c.getNextSequence(ctx, fromAddr)
+	if err != nil {
+		return "", fmt.Errorf("get sequence: %w", err)
+	}
+
+	txBuilder := txCfg.NewTxBuilder()
+	if err := txBuilder.SetMsgs(msg); err != nil {
+		return "", fmt.Errorf("set msgs: %w", err)
+	}
+	// Per-entry: ~10k gas for sig verify + keeper work; plus 200k base.
+	gasLimit := uint64(200000) + uint64(len(msg.Entries))*10000
+	const maxBlockGas = uint64(100_000_000)
+	if gasLimit > maxBlockGas {
+		gasLimit = maxBlockGas
+	}
+	txBuilder.SetGasLimit(gasLimit)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("ufai", sdkmath.NewInt(int64(gasLimit/200)))))
+
+	sdkPrivKey := &sdkcrypto.PrivKey{Key: privKey}
+	pubKey := sdkPrivKey.PubKey()
+
+	sigData := &signingtypes.SingleSignatureData{
+		SignMode:  signingtypes.SignMode_SIGN_MODE_DIRECT,
+		Signature: nil,
+	}
+	sig := signingtypes.SignatureV2{
+		PubKey:   pubKey,
+		Data:     sigData,
+		Sequence: seq,
+	}
+	if err := txBuilder.SetSignatures(sig); err != nil {
+		return "", fmt.Errorf("set empty sig: %w", err)
+	}
+
+	signerData := authsigning.SignerData{
+		ChainID:       chainId,
+		AccountNumber: accNum,
+		Sequence:      seq,
+	}
+	sigV2, err := clienttx.SignWithPrivKey(ctx,
+		signingtypes.SignMode_SIGN_MODE_DIRECT,
+		signerData, txBuilder, sdkPrivKey, txCfg, seq)
+	if err != nil {
+		return "", fmt.Errorf("sign tx: %w", err)
+	}
+	if err := txBuilder.SetSignatures(sigV2); err != nil {
+		return "", fmt.Errorf("set final sig: %w", err)
+	}
+
+	txBytes, err := txCfg.TxEncoder()(txBuilder.GetTx())
+	if err != nil {
+		return "", fmt.Errorf("encode tx: %w", err)
+	}
+
+	hash, err := c.BroadcastTx(ctx, txBytes)
+	if err != nil {
+		if strings.Contains(err.Error(), "sequence") {
+			log.Printf("chain: audit-batch sequence mismatch, resetting")
+			c.ResetSequence()
+		}
+		return "", err
+	}
+
+	log.Printf("chain: SecondVerificationResultBatch tx broadcast hash=%s entries=%d gas=%d seq=%d", hash, len(msg.Entries), gasLimit, seq)
+	return hash, nil
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

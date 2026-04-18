@@ -561,8 +561,37 @@ func (n *Node) startBatchLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			n.doBatchSettlement(ctx)
+			n.doAuditBatchSubmit(ctx)
 		}
 	}
+}
+
+// doAuditBatchSubmit drains Proposer.readyAudits into a
+// MsgSecondVerificationResultBatch and broadcasts it (D2 / issue #9).
+// Entries stay in the queue on failure so the next tick retries. Called
+// from startBatchLoop so audit and settlement broadcasts share the same
+// tick cadence (BatchInterval, default 5s) and the same node's signing
+// identity (WorkerAddr/WorkerPrivKey).
+func (n *Node) doAuditBatchSubmit(ctx context.Context) {
+	if n.Chain == nil || n.Proposer == nil {
+		return
+	}
+	msg := n.Proposer.BuildAuditBatch()
+	if msg == nil {
+		return
+	}
+	if n.Config.WorkerAddr == "" || len(n.Config.WorkerPrivKey) == 0 {
+		log.Printf("dispatch: audit batch ready (%d entries) but no signing key configured", len(msg.Entries))
+		return
+	}
+
+	hash, err := n.Chain.BroadcastAuditBatch(ctx, msg, n.Config.WorkerPrivKey, n.Config.WorkerAddr, n.Config.ChainID)
+	if err != nil {
+		log.Printf("dispatch: audit batch broadcast failed (entries retained for retry): %v", err)
+		return
+	}
+	n.Proposer.CommitAuditBatch()
+	log.Printf("dispatch: SecondVerificationResultBatch submitted tx=%s entries=%d", hash, len(msg.Entries))
 }
 
 func (n *Node) doBatchSettlement(ctx context.Context) {

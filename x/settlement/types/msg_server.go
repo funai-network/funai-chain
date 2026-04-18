@@ -12,6 +12,7 @@ func init() {
 	proto.RegisterType((*MsgBatchSettlementResponse)(nil), "funai.settlement.MsgBatchSettlementResponse")
 	proto.RegisterType((*MsgFraudProofResponse)(nil), "funai.settlement.MsgFraudProofResponse")
 	proto.RegisterType((*MsgSecondVerificationResultResponse)(nil), "funai.settlement.MsgSecondVerificationResultResponse")
+	proto.RegisterType((*MsgSecondVerificationResultBatchResponse)(nil), "funai.settlement.MsgSecondVerificationResultBatchResponse")
 }
 
 type MsgServer interface {
@@ -20,6 +21,7 @@ type MsgServer interface {
 	BatchSettle(context.Context, *MsgBatchSettlement) (*MsgBatchSettlementResponse, error)
 	SubmitFraudProof(context.Context, *MsgFraudProof) (*MsgFraudProofResponse, error)
 	SubmitSecondVerificationResult(context.Context, *MsgSecondVerificationResult) (*MsgSecondVerificationResultResponse, error)
+	SubmitSecondVerificationResultBatch(context.Context, *MsgSecondVerificationResultBatch) (*MsgSecondVerificationResultBatchResponse, error)
 }
 
 type MsgDepositResponse struct{}
@@ -54,4 +56,20 @@ func (m *MsgSecondVerificationResultResponse) ProtoMessage() {}
 func (m *MsgSecondVerificationResultResponse) Reset()        { *m = MsgSecondVerificationResultResponse{} }
 func (m *MsgSecondVerificationResultResponse) String() string {
 	return "MsgSecondVerificationResultResponse"
+}
+
+// MsgSecondVerificationResultBatchResponse reports how many entries were
+// accepted; rejected entries (bad sig / unknown verifier) are logged but
+// do not fail the tx, so a single bad entry cannot block the rest.
+type MsgSecondVerificationResultBatchResponse struct {
+	AcceptedCount uint32 `protobuf:"varint,1,opt,name=accepted_count,proto3" json:"accepted_count"`
+	RejectedCount uint32 `protobuf:"varint,2,opt,name=rejected_count,proto3" json:"rejected_count"`
+}
+
+func (m *MsgSecondVerificationResultBatchResponse) ProtoMessage() {}
+func (m *MsgSecondVerificationResultBatchResponse) Reset() {
+	*m = MsgSecondVerificationResultBatchResponse{}
+}
+func (m *MsgSecondVerificationResultBatchResponse) String() string {
+	return "MsgSecondVerificationResultBatchResponse"
 }

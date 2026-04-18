@@ -118,3 +118,24 @@ func (m msgServer) SubmitSecondVerificationResult(goCtx context.Context, msg *ty
 
 	return &types.MsgSecondVerificationResultResponse{}, nil
 }
+
+// SubmitSecondVerificationResultBatch handles the D2 batch message. Per-entry
+// sig verification is delegated to ProcessSecondVerificationResultBatch;
+// rejected entries do not fail the tx so the proposer's batch still lands.
+func (m msgServer) SubmitSecondVerificationResultBatch(goCtx context.Context, msg *types.MsgSecondVerificationResultBatch) (*types.MsgSecondVerificationResultBatchResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	accepted, rejected := m.ProcessSecondVerificationResultBatch(ctx, msg)
+
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventSecondVerificationResultBatch,
+		sdk.NewAttribute(types.AttributeKeyProposer, msg.Proposer),
+		sdk.NewAttribute(types.AttributeKeyAcceptedCount, strconv.FormatUint(uint64(accepted), 10)),
+		sdk.NewAttribute(types.AttributeKeyRejectedCount, strconv.FormatUint(uint64(rejected), 10)),
+	))
+
+	return &types.MsgSecondVerificationResultBatchResponse{
+		AcceptedCount: accepted,
+		RejectedCount: rejected,
+	}, nil
+}

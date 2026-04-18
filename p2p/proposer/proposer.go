@@ -43,10 +43,25 @@ type Proposer struct {
 	pendingTasks  map[string]*TaskEvidence
 	pendingAudits map[string]*AuditEvidence
 	clearedTasks  []settlementtypes.SettlementEntry
-	batchSize     int
-	activeWorkers []vrftypes.RankedWorker
-	Store         *p2pstore.Store    // P2-1: persistent storage for audit trail
-	Rebroadcaster RebroadcastStopper // P2-2: stop rebroadcast when 3 results collected
+	// D2 (issue #9): audits that have collected ≥3 P2P responses and are
+	// queued for on-chain submission via MsgSecondVerificationResultBatch.
+	// Follows the same "build-then-commit-on-success" pattern as
+	// clearedTasks so a failed broadcast leaves work in place for retry.
+	readyAudits        []readyAuditEntry
+	auditBatchInFlight int // number of readyAudits included in the most recent BuildAuditBatch
+	batchSize          int
+	activeWorkers      []vrftypes.RankedWorker
+	Store              *p2pstore.Store    // P2-1: persistent storage for audit trail
+	Rebroadcaster      RebroadcastStopper // P2-2: stop rebroadcast when 3 results collected
+}
+
+// readyAuditEntry holds a completed audit ready for on-chain submission.
+// Responses are the Worker-signed P2P payloads whose embedded signatures
+// we carry through unchanged as each batch entry's signature.
+type readyAuditEntry struct {
+	TaskId    []byte
+	Epoch     int64
+	Responses []p2ptypes.SecondVerificationResponse
 }
 
 // TaskEvidence holds evidence for a single task.
@@ -527,7 +542,9 @@ func (p *Proposer) buildAuditRequest(taskId []byte, ev *TaskEvidence) *p2ptypes.
 }
 
 // CollectSecondVerificationResponse adds an audit response from an second_verifier.
-// Returns true when enough responses (3) have been collected.
+// Returns true when enough responses (3) have been collected. On completion,
+// the audit is moved from pendingAudits to readyAudits for the next
+// MsgSecondVerificationResultBatch broadcast (D2 / issue #9).
 func (p *Proposer) CollectSecondVerificationResponse(resp *p2ptypes.SecondVerificationResponse) (complete bool, pass bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -549,19 +566,107 @@ func (p *Proposer) CollectSecondVerificationResponse(resp *p2ptypes.SecondVerifi
 	ev.Responses = append(ev.Responses, *resp)
 
 	if len(ev.Responses) >= 3 {
-		return true, p.countAuditPass(ev) >= 2
+		p.moveAuditToReadyLocked(key, ev, resp.TaskId)
+		return true, p.countAuditPassResponses(ev.Responses) >= 2
 	}
 	return false, false
 }
 
-func (p *Proposer) countAuditPass(ev *AuditEvidence) int {
+// moveAuditToReadyLocked snapshots a completed audit into readyAudits and
+// drops it from pendingAudits so subsequent responses are ignored as dup.
+// Must be called with p.mu held.
+func (p *Proposer) moveAuditToReadyLocked(key string, ev *AuditEvidence, taskId []byte) {
+	responses := make([]p2ptypes.SecondVerificationResponse, len(ev.Responses))
+	copy(responses, ev.Responses)
+	p.readyAudits = append(p.readyAudits, readyAuditEntry{
+		TaskId:    append([]byte(nil), taskId...),
+		Responses: responses,
+	})
+	delete(p.pendingAudits, key)
+}
+
+func (p *Proposer) countAuditPassResponses(responses []p2ptypes.SecondVerificationResponse) int {
 	count := 0
-	for _, r := range ev.Responses {
+	for _, r := range responses {
 		if r.Pass {
 			count++
 		}
 	}
 	return count
+}
+
+// countAuditPass counts PASS responses in an audit evidence. Retained for
+// callers that still access pendingAudits directly.
+func (p *Proposer) countAuditPass(ev *AuditEvidence) int {
+	return p.countAuditPassResponses(ev.Responses)
+}
+
+// BuildAuditBatch returns up to MaxSecondVerificationBatchEntries entries
+// drawn from readyAudits in FIFO order. Entries are NOT removed from
+// readyAudits until CommitAuditBatch is called — matches the
+// MsgBatchSettlement pattern where broadcast failure leaves work in place
+// for the next tick (see startAuditBatchLoop in p2p/dispatch.go).
+//
+// Returns nil when no ready audits exist, so callers can short-circuit.
+func (p *Proposer) BuildAuditBatch() *settlementtypes.MsgSecondVerificationResultBatch {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.readyAudits) == 0 || p.Address == "" {
+		return nil
+	}
+
+	const maxEntries = settlementtypes.MaxSecondVerificationBatchEntries
+	entries := make([]settlementtypes.SecondVerificationBatchEntry, 0, maxEntries)
+	consumed := 0
+	for _, ra := range p.readyAudits {
+		if len(entries)+len(ra.Responses) > maxEntries {
+			break
+		}
+		for _, resp := range ra.Responses {
+			entries = append(entries, settlementtypes.SecondVerificationBatchEntry{
+				TaskId:               ra.TaskId,
+				SecondVerifier:       pubkeyToBech32(resp.SecondVerifierAddr),
+				Epoch:                ra.Epoch,
+				Pass:                 resp.Pass,
+				LogitsHash:           resp.LogitsHash,
+				VerifiedInputTokens:  resp.VerifiedInputTokens,
+				VerifiedOutputTokens: resp.VerifiedOutputTokens,
+				Signature:            resp.Signature,
+			})
+		}
+		consumed++
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	p.auditBatchInFlight = consumed
+	return settlementtypes.NewMsgSecondVerificationResultBatch(p.Address, entries)
+}
+
+// CommitAuditBatch drops the first auditBatchInFlight entries from
+// readyAudits after a successful chain broadcast. Called by the dispatch
+// loop only on broadcast success — otherwise the queue retains its head
+// and the next BuildAuditBatch retries the same entries.
+func (p *Proposer) CommitAuditBatch() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	n := p.auditBatchInFlight
+	if n <= 0 || n > len(p.readyAudits) {
+		p.auditBatchInFlight = 0
+		return
+	}
+	p.readyAudits = p.readyAudits[n:]
+	p.auditBatchInFlight = 0
+}
+
+// ReadyAuditCount returns how many audits are queued for batch submission
+// (used by the dispatch loop to skip broadcasting when nothing is ready).
+func (p *Proposer) ReadyAuditCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.readyAudits)
 }
 
 // pubkeyToBech32 derives a bech32 address from a compressed secp256k1 public key.
