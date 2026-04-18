@@ -231,3 +231,111 @@ Phases 1–5 total approximately 200 lines and can ship first. Phase 6 is more c
 | ConsecutiveRejects (consecutive rejections) | ConsecutiveLeaderFailovers | Symmetric design. One governs Worker refusal to accept tasks, the other governs Leader idleness. |
 | Jail mechanism | No Leader jail needed | The consequence of an idle Leader is rank demotion so it cannot be elected Leader; jail is not needed. |
 | VRF AlphaDispatch | New AlphaLeader (or reuse α=1.0) | Leader election and Worker dispatch use the same α but different reputation scores. |
+
+---
+
+## Review Notes (pre-implementation)
+
+Findings from the 2026-04-18 design review. Kept separate from the body
+above so the original intent is preserved; every item needs to be handled
+or explicitly waived by the implementation PR.
+
+### Must fix before coding
+
+1. **Proto tag collision.** The struct snippet uses `varint,25` for
+   `LeaderReputationScore` and `26` for `ConsecutiveLeaderFailovers`. Tag
+   25 is already occupied by `AvgLatencyMs` (introduced by PR #10). The
+   implementation PR must use tags 26 and 27.
+
+2. **Missing `EffectiveLeaderReputation()` helper.** Go's zero-value for
+   `uint32` is 0, which under the proposed formula multiplies
+   `effective_stake` by 0. Any Worker registered before the upgrade
+   would be permanently ineligible for Leader election. The helper must
+   treat `LeaderReputationScore == 0` as 1.0 (same contract as the
+   existing `EffectiveReputation()`).
+
+3. **Genesis migration on upgrade.** Beyond the helper, existing Worker
+   rows need a one-shot migration that sets `LeaderReputationScore =
+   LeaderRepInitial` when the new field is first materialized.
+
+### Design ambiguities to resolve
+
+4. **Scenario 1 + Scenario 2 double-penalty.** A failover epoch
+   necessarily has ~0 dispatches. As written, a single failure can
+   trigger both `LeaderRepFailoverPenalty` (−0.05 once 3-strike hits)
+   and `LeaderRepIdlePenalty` (−0.1 every epoch). Intentional? If not,
+   `CheckLeaderPerformance` should skip the idle branch for epochs that
+   terminated via failover (`leader.EndBlock < leader.StartBlock +
+   LeaderEpochDuration`).
+
+5. **Scenario 3 pseudocode vs comment disagreement.** The pseudocode
+   deducts unconditionally when `actualRank > 3`; the adjacent comment
+   says "check whether rank#1/#2/#3 have rejection records first".
+   Under current P2P failover bounds (up to 3 ranks) the unconditional
+   form is defensible, but the code and comment must line up before
+   merge.
+
+6. **`ConsecutiveLeaderFailovers` reset semantics.** The field is only
+   reset inside the good-epoch branch of Scenario 1. If Leader A fails
+   once, Leader B runs normally, Leader A fails again, A.counter
+   increments across non-adjacent epochs. Is "consecutive" per-Worker
+   across all epochs (the written behavior), or per-Worker within a
+   rolling window, or only across immediately adjacent elections? The
+   implementation must pick one and document it.
+
+### Attack surface
+
+7. **P2P-network-partition DoS of the idle penalty.** An adversary who
+   can eclipse a target Leader from the user request stream (P2P
+   partition, BGP-level interception) forces Scenario 1 to fire every
+   epoch — the Leader sees zero dispatches through no fault of its own.
+   The document's "no deduction if entire model had no requests"
+   carve-out is listed as optional and does not help (the attacker does
+   not need to silence the whole model, only the target). Mitigation:
+   make the carve-out mandatory, and add a second condition —
+   only deduct when at least one other Leader on the same model *did*
+   dispatch in the same epoch. The penalty then requires attacker to
+   partition the model, not an individual Leader.
+
+8. **Idle penalty is much heavier than failover penalty in practice.**
+   Per-occurrence the numbers are -0.1 (idle) vs -0.05 (failover), but
+   failover penalty only fires every 3 strikes. Cumulative: 10 idle
+   epochs = -1.0; 10 failover events = -0.15. Idle is 6.7× heavier —
+   but idle is also the penalty that is easiest to trigger from outside
+   (see item 7). Recommend dropping idle to -0.03 (match single
+   failover) or making the threshold gradual (partial penalty under
+   partial-dispatch regimes).
+
+9. **Recovery is slow relative to attack rate.** Decay +0.005/hour
+   means recovering from 0.5 → 1.0 takes ~100 hours (4 days). A brief
+   real outage can lock a legitimate Leader out for days. Either raise
+   the decay step, or add a "N consecutive good epochs → extra +0.05"
+   accelerator.
+
+### Interaction with existing merged work
+
+10. **S4 (PR #8) Leader pubkey distribution transient failure.** S4
+    Workers accept AssignTask signed by the top-3 VRF Leaders for the
+    current model. If a Leader's `LeaderReputationScore` drops sharply
+    (e.g. one Scenario 1 hit from 1.0 to 0.9), it can fall out of the
+    top-3 window mid-task. Result: Worker rejects the signature, a
+    failover fires, and `ConsecutiveLeaderFailovers` increments —
+    compounding the original penalty with a failover penalty for what
+    was in fact a correct dispatch. Recommended mitigation: the
+    top-3 window on the Worker side should be a union over the last
+    few epochs (say the last 6 = 3 minutes), not strictly the current
+    epoch. This smooths rep-driven transitions.
+
+### Estimation caveat
+
+11. **Implementation effort is undercounted.** The document's 200–300
+    line figure omits the Proposer-side changes needed for Scenario 1
+    (`SettlementEntry.LeaderAddress` writing), the test matrix (all
+    seven phases need unit tests), and the VRF-formula branch logic.
+    A realistic range is **550–700 lines** end-to-end. The P2
+    classification does not change.
+
+---
+
+*These notes do not block this ingest. They are the hand-off brief for
+whoever opens the implementation PR.*
