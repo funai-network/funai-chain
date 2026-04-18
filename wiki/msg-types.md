@@ -86,16 +86,16 @@ When a task settles as SUCCESS (user pays 100% of the agreed fee):
 
 | Recipient | Share | Parameter |
 |-----------|-------|-----------|
-| Worker (executor) | 95.0% | `executor_fee_ratio = 950` |
-| 3 Verifiers (split) | 4.5% (1.5% each) | `verifier_fee_ratio = 45` |
-| Second verification fund | 0.5% | `multi_verification_fund_ratio = 5` |
+| Worker (executor) | 85.0% | `executor_fee_ratio = 850` |
+| 3 Verifiers (split) | 12.0% (4% each) | `verifier_fee_ratio = 120` |
+| Multi-verification fund | 3.0% | `multi_verification_fund_ratio = 30` |
 
-When a task settles as FAIL (user pays only 5% of the agreed fee):
+When a task settles as FAIL (user pays 15% of the agreed fee; PR #2 raised fail fee from 5% to 15%):
 
 | Recipient | Share | Parameter |
 |-----------|-------|-----------|
-| 3 Verifiers (split) | 4.5% (1.5% each) | `verifier_fee_ratio = 45` |
-| Second verification fund | 0.5% | `multi_verification_fund_ratio = 5` |
+| 3 Verifiers (split) | 12.0% (4% each) | `verifier_fee_ratio = 120` |
+| Multi-verification fund | 3.0% | `multi_verification_fund_ratio = 30` |
 | Worker | 0% | Worker is jailed |
 
 See [Parameters](parameters.md) for all configurable fee ratios and [Settlement](settlement.md) for the full state machine.

@@ -1,6 +1,6 @@
 # Per-Token Billing (S9)
 
-Per-token billing ensures that users never overpay (capped at `max_fee`), Workers are paid proportionally to actual token output, and token counts are unforgeable through cross-verification. The fee split remains unchanged from per-request mode: **95% Worker / 4.5% verifiers / 0.5% multi-verification fund** (see [settlement](settlement.md)).
+Per-token billing ensures that users never overpay (capped at `max_fee`), Workers are paid proportionally to actual token output, and token counts are unforgeable through cross-verification. The fee split remains unchanged from per-request mode: **85% Worker / 12% verifiers / 3% multi-verification fund** (PR #2; see [settlement](settlement.md)).
 
 Source: [S9 Per-Token Billing Supplement](../docs/S9_PerToken_Billing_Supplement.md)
 
