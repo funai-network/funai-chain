@@ -46,6 +46,7 @@ func (AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 		&types.MsgBatchSettlement{},
 		&types.MsgFraudProof{},
 		&types.MsgSecondVerificationResult{},
+		&types.MsgSecondVerificationResultBatch{},
 	)
 }
 

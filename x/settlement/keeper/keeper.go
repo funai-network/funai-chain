@@ -2398,3 +2398,105 @@ func CalculatePerTokenFee(inputTokens, outputTokens uint32, feePerInput, feePerO
 	}
 	return actualFee
 }
+
+// SecondVerificationEntrySigBytes returns the canonical pre-image that a
+// second-tier verifier signs when responding over P2P. It mirrors
+// p2p/types.SecondVerificationResponse.SignBytes so a Worker-side signature
+// carries through the Proposer into this chain-side batch without being
+// re-generated. Any change here must be mirrored in that P2P message type
+// or the embedded signatures will stop verifying.
+//
+// Note: the verifier's pubkey bytes (not the bech32 address) are mixed in,
+// matching the P2P side where SecondVerificationResponse.SecondVerifierAddr
+// is populated with Verifier.Pubkey at broadcast time.
+func SecondVerificationEntrySigBytes(entry types.SecondVerificationBatchEntry, verifierPubkey []byte) []byte {
+	h := sha256.New()
+	h.Write(entry.TaskId)
+	if entry.Pass {
+		h.Write([]byte{1})
+	} else {
+		h.Write([]byte{0})
+	}
+	h.Write(verifierPubkey)
+	h.Write(entry.LogitsHash)
+	itcBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(itcBuf, entry.VerifiedInputTokens)
+	h.Write(itcBuf)
+	otcBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(otcBuf, entry.VerifiedOutputTokens)
+	h.Write(otcBuf)
+	return h.Sum(nil)
+}
+
+// ProcessSecondVerificationResultBatch verifies each entry's per-verifier
+// signature against the on-chain pubkey and funnels the verified entries
+// through the existing single-entry ProcessSecondVerificationResult path.
+//
+// D2 (issue #9): proposer-batched form that lets verifiers stay pure P2P
+// responders — they do not need gas or tx-broadcasting infrastructure.
+// Per-entry sig verification matches the triple-sha256 pattern used by P2P
+// handleSecondVerificationResponse (explicit sha256.Sum256 on the canonical
+// bytes, then cometbft's internal sha256 inside VerifySignature).
+//
+// Entries with an invalid sig, an unknown/tombstoned second_verifier, or a
+// mismatched pubkey are dropped with a log event — they do not fail the
+// whole batch, so one malformed entry cannot block the rest.
+//
+// Returns (accepted, rejected).
+func (k Keeper) ProcessSecondVerificationResultBatch(ctx sdk.Context, msg *types.MsgSecondVerificationResultBatch) (uint32, uint32) {
+	if msg == nil {
+		return 0, 0
+	}
+	var accepted, rejected uint32
+	for i, entry := range msg.Entries {
+		if k.processSecondVerificationBatchEntry(ctx, i, entry) {
+			accepted++
+		} else {
+			rejected++
+		}
+	}
+	return accepted, rejected
+}
+
+// processSecondVerificationBatchEntry validates one batch entry and forwards
+// it to the existing ProcessSecondVerificationResult. Returns true on accept.
+func (k Keeper) processSecondVerificationBatchEntry(ctx sdk.Context, i int, entry types.SecondVerificationBatchEntry) bool {
+	verifierAddr, err := sdk.AccAddressFromBech32(entry.SecondVerifier)
+	if err != nil {
+		ctx.Logger().Info("reject batch entry: bad address", "index", i, "second_verifier", entry.SecondVerifier, "err", err)
+		return false
+	}
+	if k.workerKeeper == nil {
+		ctx.Logger().Error("reject batch entry: worker keeper unavailable", "index", i)
+		return false
+	}
+	pubkeyStr, found := k.workerKeeper.GetWorkerPubkey(ctx, verifierAddr)
+	if !found || len(pubkeyStr) != 33 {
+		ctx.Logger().Info("reject batch entry: unknown second_verifier pubkey", "index", i, "second_verifier", entry.SecondVerifier)
+		return false
+	}
+	pubkeyBytes := []byte(pubkeyStr)
+
+	canonical := SecondVerificationEntrySigBytes(entry, pubkeyBytes)
+	msgHash := sha256.Sum256(canonical)
+	pk := secp256k1.PubKey(pubkeyBytes)
+	if !pk.VerifySignature(msgHash[:], entry.Signature) {
+		ctx.Logger().Info("reject batch entry: signature verification failed", "index", i, "second_verifier", entry.SecondVerifier)
+		return false
+	}
+
+	single := &types.MsgSecondVerificationResult{
+		SecondVerifier:       entry.SecondVerifier,
+		TaskId:               entry.TaskId,
+		Epoch:                entry.Epoch,
+		Pass:                 entry.Pass,
+		LogitsHash:           entry.LogitsHash,
+		VerifiedInputTokens:  entry.VerifiedInputTokens,
+		VerifiedOutputTokens: entry.VerifiedOutputTokens,
+	}
+	if err := k.ProcessSecondVerificationResult(ctx, single); err != nil {
+		ctx.Logger().Info("reject batch entry: processing failed", "index", i, "second_verifier", entry.SecondVerifier, "err", err)
+		return false
+	}
+	return true
+}

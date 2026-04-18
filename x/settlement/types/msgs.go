@@ -15,6 +15,8 @@ func init() {
 	proto.RegisterType((*MsgBatchSettlement)(nil), "funai.settlement.MsgBatchSettlement")
 	proto.RegisterType((*MsgFraudProof)(nil), "funai.settlement.MsgFraudProof")
 	proto.RegisterType((*MsgSecondVerificationResult)(nil), "funai.settlement.MsgSecondVerificationResult")
+	proto.RegisterType((*MsgSecondVerificationResultBatch)(nil), "funai.settlement.MsgSecondVerificationResultBatch")
+	proto.RegisterType((*SecondVerificationBatchEntry)(nil), "funai.settlement.SecondVerificationBatchEntry")
 }
 
 var (
@@ -23,6 +25,7 @@ var (
 	_ sdk.Msg = &MsgBatchSettlement{}
 	_ sdk.Msg = &MsgFraudProof{}
 	_ sdk.Msg = &MsgSecondVerificationResult{}
+	_ sdk.Msg = &MsgSecondVerificationResultBatch{}
 )
 
 // -------- MsgDeposit --------
@@ -249,4 +252,96 @@ func (msg *MsgSecondVerificationResult) ValidateBasic() error {
 func (msg *MsgSecondVerificationResult) GetSigners() []sdk.AccAddress {
 	second_verifier, _ := sdk.AccAddressFromBech32(msg.SecondVerifier)
 	return []sdk.AccAddress{second_verifier}
+}
+
+// -------- MsgSecondVerificationResultBatch (D2) --------
+//
+// Carries one or more second/third-tier verification results that the
+// Proposer has already collected and verified over P2P. Each entry embeds
+// the verifier's own secp256k1 signature over the canonical result fields,
+// so the keeper can attribute every entry to the correct verifier even
+// though the tx itself is signed by a single proposer account.
+//
+// Mirrors the existing BatchSettlement pattern: proposer pays gas; per-entry
+// authorship is proven by embedded sigs verified in-keeper (not by the
+// Cosmos SDK antehandler). Avoids requiring every second-tier verifier to
+// hold gas and run tx-broadcasting infrastructure.
+
+// SecondVerificationBatchEntry is one audit result inside a batch.
+// Field layout matches p2p/types SecondVerificationResponse (task_id, pass,
+// verifier pubkey, logits_hash, token counts) so the P2P signature carries
+// forward without re-signing. SecondVerifier is the bech32 account address
+// resolved from that pubkey; the keeper looks the pubkey up via x/worker
+// and rejects entries where the stored pubkey and the entry disagree.
+type SecondVerificationBatchEntry struct {
+	TaskId               []byte `protobuf:"bytes,1,opt,name=task_id,proto3" json:"task_id"`
+	SecondVerifier       string `protobuf:"bytes,2,opt,name=second_verifier,proto3" json:"second_verifier"`
+	Epoch                int64  `protobuf:"varint,3,opt,name=epoch,proto3" json:"epoch"`
+	Pass                 bool   `protobuf:"varint,4,opt,name=pass,proto3" json:"pass"`
+	LogitsHash           []byte `protobuf:"bytes,5,opt,name=logits_hash,proto3" json:"logits_hash"`
+	VerifiedInputTokens  uint32 `protobuf:"varint,6,opt,name=verified_input_tokens,proto3" json:"verified_input_tokens,omitempty"`
+	VerifiedOutputTokens uint32 `protobuf:"varint,7,opt,name=verified_output_tokens,proto3" json:"verified_output_tokens,omitempty"`
+	Signature            []byte `protobuf:"bytes,8,opt,name=signature,proto3" json:"signature"`
+}
+
+func (m *SecondVerificationBatchEntry) ProtoMessage()  {}
+func (m *SecondVerificationBatchEntry) Reset()         { *m = SecondVerificationBatchEntry{} }
+func (m *SecondVerificationBatchEntry) String() string { return "SecondVerificationBatchEntry" }
+
+type MsgSecondVerificationResultBatch struct {
+	Proposer string                         `protobuf:"bytes,1,opt,name=proposer,proto3" json:"proposer"`
+	Entries  []SecondVerificationBatchEntry `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries"`
+}
+
+func NewMsgSecondVerificationResultBatch(proposer string, entries []SecondVerificationBatchEntry) *MsgSecondVerificationResultBatch {
+	return &MsgSecondVerificationResultBatch{Proposer: proposer, Entries: entries}
+}
+
+func (msg *MsgSecondVerificationResultBatch) ProtoMessage()  {}
+func (msg *MsgSecondVerificationResultBatch) Reset()         { *msg = MsgSecondVerificationResultBatch{} }
+func (msg *MsgSecondVerificationResultBatch) String() string {
+	return fmt.Sprintf("MsgSecondVerificationResultBatch{%s,%d}", msg.Proposer, len(msg.Entries))
+}
+
+// MaxSecondVerificationBatchEntries bounds batch size to keep gas bounded
+// (per-entry keeper cost is a pubkey lookup + secp256k1 verify + state read/write).
+const MaxSecondVerificationBatchEntries = 256
+
+func (msg *MsgSecondVerificationResultBatch) ValidateBasic() error {
+	if _, err := sdk.AccAddressFromBech32(msg.Proposer); err != nil {
+		return sdkerrors.Wrap(err, "invalid proposer address")
+	}
+	if len(msg.Entries) == 0 {
+		return sdkerrors.Wrap(ErrInvalidSettlement, "batch must contain at least one entry")
+	}
+	if len(msg.Entries) > MaxSecondVerificationBatchEntries {
+		return sdkerrors.Wrapf(ErrInvalidSettlement, "batch size %d exceeds max %d", len(msg.Entries), MaxSecondVerificationBatchEntries)
+	}
+	for i, e := range msg.Entries {
+		if _, err := sdk.AccAddressFromBech32(e.SecondVerifier); err != nil {
+			return sdkerrors.Wrapf(err, "entry %d: invalid second_verifier address", i)
+		}
+		if len(e.TaskId) == 0 {
+			return sdkerrors.Wrapf(ErrInvalidSettlement, "entry %d: task_id cannot be empty", i)
+		}
+		if e.Epoch < 0 {
+			return sdkerrors.Wrapf(ErrInvalidSettlement, "entry %d: epoch cannot be negative", i)
+		}
+		if len(e.LogitsHash) == 0 {
+			return sdkerrors.Wrapf(ErrInvalidSettlement, "entry %d: logits_hash cannot be empty", i)
+		}
+		if len(e.Signature) == 0 {
+			return sdkerrors.Wrapf(ErrInvalidSettlement, "entry %d: signature cannot be empty", i)
+		}
+	}
+	return nil
+}
+
+// GetSigners returns the Proposer, NOT each verifier. Per-verifier
+// authenticity is proven by the embedded signature on each entry and
+// verified in-keeper — the Cosmos SDK antehandler only authenticates the
+// proposer (for gas and tx submission).
+func (msg *MsgSecondVerificationResultBatch) GetSigners() []sdk.AccAddress {
+	proposer, _ := sdk.AccAddressFromBech32(msg.Proposer)
+	return []sdk.AccAddress{proposer}
 }

@@ -1,13 +1,14 @@
 package types
 
 const (
-	EventDeposit                  = "settlement_deposit"
-	EventWithdraw                 = "settlement_withdraw"
-	EventBatchSettlement          = "batch_settlement"
-	EventFraudProof               = "fraud_proof"
-	EventSecondVerificationResult = "second_verification_result"
-	EventFailSettlement           = "fail_settlement"
-	EventTaskCleanup              = "task_cleanup"
+	EventDeposit                       = "settlement_deposit"
+	EventWithdraw                      = "settlement_withdraw"
+	EventBatchSettlement               = "batch_settlement"
+	EventFraudProof                    = "fraud_proof"
+	EventSecondVerificationResult      = "second_verification_result"
+	EventSecondVerificationResultBatch = "second_verification_result_batch"
+	EventFailSettlement                = "fail_settlement"
+	EventTaskCleanup                   = "task_cleanup"
 
 	AttributeKeyUser           = "user"
 	AttributeKeyAmount         = "amount"
@@ -23,4 +24,6 @@ const (
 	AttributeKeyEpoch          = "epoch"
 	AttributeKeyPass           = "pass"
 	AttributeKeyCleanedTasks   = "cleaned_tasks"
+	AttributeKeyAcceptedCount  = "accepted_count"
+	AttributeKeyRejectedCount  = "rejected_count"
 )
