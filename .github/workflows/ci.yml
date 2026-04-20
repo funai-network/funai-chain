@@ -23,7 +23,11 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test ./... -race -count=1 -timeout 10m -coverprofile=coverage.out
+        # -short skips 1M-iteration stress tests (TestDustAccumulation_1M,
+        # TestFeeConservation_Randomized_1M); those are run separately via
+        # `make test-stress` per the guidance at
+        # x/settlement/keeper/economic_test.go:21-24.
+        run: go test ./... -race -short -count=1 -timeout 10m -coverprofile=coverage.out
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -46,7 +50,14 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # install-mode: goinstall compiles golangci-lint from source using
+          # the runner's Go toolchain (go1.25.7 per go.mod). The default binary
+          # mode pulled v1.64.8 prebuilt against go1.24, which rejects our
+          # `go 1.25.7` directive with:
+          #   "the Go language version (go1.24) used to build golangci-lint is
+          #    lower than the targeted Go version (1.25.7)"
+          version: v1.64.8
+          install-mode: goinstall
           args: --timeout 5m
 
   build:
