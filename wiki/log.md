@@ -1,5 +1,39 @@
 # FunAI Chain Wiki — Operations Log
 
+## [2026-04-21] update | V6 design note — item #12 Leader-side request bundling
+
+**Operator:** Claude (LLM)
+
+**Change:** Added P0 item #12 "Leader-side Request Bundling" to
+`docs/protocol/FunAI_V6_BatchReplay_Design.md`. Item #3 (Batch-mode
+Dispatch) updated to defer bundle timing to item #12; the Worker-side
+`batch_wait_timeout` bullet removed and replaced with a cross-reference.
+
+**Motivation (operator note, not in source):** Without Leader-side
+bundling, single-request dispatch forces Workers to see tasks arriving
+one at a time. Worker-side batch_wait_timeout only fills when requests
+happen to collide in the Worker's local P2P queue, which almost never
+happens at low-to-medium traffic. Result: `batch=1` wins, item #3's
+5-10× throughput promise doesn't materialise.
+
+**New behavior:** Leader accumulates eligible requests for up to
+`leader_batch_window_ms` (default 500 ms) or until a target Worker's
+remaining capacity fills, then dispatches the whole bundle as a single
+P2P message containing N tasks. Tight-SLA requests
+(`MaxLatencyMs < 2 × leader_batch_window_ms`) bypass the window.
+
+**Secondary benefit:** C2 (adversarial-partner attack) surface shrinks
+significantly — Worker has no scheduling freedom over batch
+composition. A malicious Leader could still choose adversarial
+partners, but Leader is rotating VRF-elected with broadcast-observable
+decisions, so sustained manipulation is harder.
+
+**Wiki pages updated:**
+- `wiki/index.md` — Updated V6 row: 11 → 12 items; mentions Leader bundling and C2 reduction.
+- `wiki/log.md` — This entry.
+
+---
+
 ## [2026-04-21] ingest | V6 Batch-Replay design note (English) + PoC scaffold
 
 **Operator:** Claude (LLM)

@@ -34,9 +34,9 @@ replay precisely.
 - Chain maintains an `in_flight` counter. Leader keeps dispatching while
   `in_flight < capacity`.
 - Remove the busy/idle two-state.
-- Add `batch_wait_timeout` (default 500 ms, chain-adjustable). After the
-  Worker receives its first task, it waits up to the timeout to accumulate more
-  tasks into the batch.
+- **Bundle timing lives on the Leader, not the Worker.** See item #12
+  (Leader-side request bundling). The Worker runs whatever bundle the
+  Leader delivers as one batch — no Worker-side `batch_wait_timeout`.
 
 **Why.** The original one-task-at-a-time + busy state forced the Worker to
 `batch=1` forever, producing GPU utilisation of only 10-20 %. Under batch mode
@@ -48,8 +48,11 @@ would be outdated quickly. A Worker over-stating capacity naturally triggers
 timeouts and therefore jail — the market punishes misrepresentation
 automatically.
 
-`batch_wait_timeout` exists so low-traffic periods don't make users wait too
-long — after 500 ms the Worker starts regardless of whether the batch is full.
+Moving the wait-window to the Leader (item #12) matters because Worker-side
+waiting is only useful when tasks happen to arrive at the Worker during the
+window. At low-to-medium traffic, single-dispatch-per-request means each
+request arrives solo, Worker's window closes empty, and `batch=1` wins.
+Leader-side bundling closes that gap.
 
 ### 4. Settlement Adjustment
 
@@ -67,6 +70,67 @@ subsequent verification have their fee locked. That way Worker cash flow is
 healthy and money isn't held up waiting for verification. 24 hours is a hard
 cap; exceeding it means the verification chain itself is broken and needs
 manual intervention.
+
+### 12. Leader-side Request Bundling
+
+The Leader accumulates eligible requests for up to
+`leader_batch_window_ms` (default 500 ms, chain-adjustable), then
+dispatches the whole bundle to one chosen Worker as a single P2P
+message. A bundle closes early when it reaches the target Worker's
+`batch_capacity - in_flight`.
+
+- New Leader-side state: `pending_bundle[worker_id] = [req, req, ...]`
+  plus a `bundle_start_time[worker_id]` timestamp. Both exist only in
+  Leader memory; no chain-level artefact.
+- `AssignTask` becomes a list — one P2P message, N tasks. Worker's ACK
+  covers the entire bundle.
+- Worker selection per bundle uses VRF dispatch ranking (α=1.0,
+  unchanged). The Leader commits to a target Worker when the first
+  eligible request lands; subsequent requests in the window join that
+  Worker's bundle as long as its remaining capacity allows, otherwise
+  start a new bundle for a different Worker.
+- Tight-latency bypass: requests with `MaxLatencyMs <
+  2 × leader_batch_window_ms` (default 1 s) skip the window entirely
+  and are dispatched solo to the fastest available Worker, so SLA
+  budgets aren't consumed in the bundle wait.
+
+**Why.** Without Leader-side bundling, the Leader dispatches one request
+per message and the Worker sees tasks arrive singly. Even with
+Worker-side batching configured, the only way a Worker's local batch
+fills is if multiple requests happen to hit its P2P queue within a
+short window. Under low-to-medium traffic that almost never happens —
+each request dispatches solo, the Worker runs `batch=1`, GPU
+utilisation stays near the V5.2 baseline of 10-20 %, and item #3's
+5-10× throughput promise doesn't materialise.
+
+With Leader-side bundling, the batch exists as a protocol object
+before it reaches the Worker. The Worker simply runs what it receives.
+Under the same traffic profile that would produce `batch=1` in the
+old design, the Leader now delivers e.g. `batch=4` once per 500 ms
+window — filling the GPU during the 500 ms that would otherwise be
+idle waiting.
+
+**Secondary benefit — reduces review finding C2.** Worker has no
+scheduling freedom over batch composition. Adversarial-partner
+attacks (C2 in the ingest-time review) therefore cannot be mounted by
+a malicious Worker — they would require a malicious Leader, and the
+Leader is a rotating VRF-elected role with broadcast-observable
+decisions, making sustained manipulation materially harder. C2 is not
+eliminated (Leader collusion remains possible) but the attack surface
+shrinks significantly.
+
+**Tradeoffs.**
+
+- Adds up to `leader_batch_window_ms` of pre-dispatch latency to every
+  request that isn't tight-SLA-exempt. At the default 500 ms this is
+  25 % of a 2 s TTFT budget — acceptable for most workloads and
+  covered by the bypass rule for the rest.
+- Leader memory cost: `O(pending_requests × serialized_size)`. At 500
+  TPS and 500 ms window, the pending bundle holds ~250 requests at
+  peak, negligible.
+- Partitioned Leaders per `model_id × sub_topic` continue to apply
+  (from V5.2 §6 leader election); bundling is per-partition, so a
+  topic split doesn't break bundling.
 
 ---
 
