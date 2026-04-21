@@ -51,4 +51,7 @@ docs/mainnet-readiness/
 docs/FunAI_Whitepaper.md
 funai-node
 scripts/__pycache__
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
 results/
