@@ -159,6 +159,20 @@ install_python_toolchain() {
 
 sync_repo() {
   log_phase "Sync repo ${REPO_URL} @ ${BRANCH}"
+  # Set SKIP_SYNC=1 when the repo was delivered by an out-of-band method
+  # (rsync / scp / tarball) — e.g. Aliyun mainland boxes where github.com
+  # isn't directly reachable. The caller is then responsible for having
+  # REPO_DIR on the correct branch before invoking the bootstrap.
+  if [ "${SKIP_SYNC:-0}" = "1" ]; then
+    if [ ! -d "${REPO_DIR}/.git" ]; then
+      log_fail "SKIP_SYNC=1 but ${REPO_DIR} is not a git repo"
+      exit 1
+    fi
+    local sha
+    sha=$(git -C "${REPO_DIR}" rev-parse --short HEAD)
+    log_pass "SKIP_SYNC=1 — using ${REPO_DIR} @ ${sha} as-is"
+    return
+  fi
   if [ ! -d "${REPO_DIR}/.git" ]; then
     log_info "Cloning into ${REPO_DIR} ..."
     git clone "${REPO_URL}" "${REPO_DIR}"
