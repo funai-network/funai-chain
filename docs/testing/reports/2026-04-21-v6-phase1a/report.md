@@ -368,8 +368,11 @@ docs/testing/reports/2026-04-21-v6-phase1a/
 ├── phase1a-20260421-080515/                 3B Phase 1a + 1c (intermediate)
 │   ├── pytest.log                           12 tests, 140 s
 │   └── verdict.json                         result=PASS
-├── phase1a-20260421-084132/                 3B Phase 1a + 1c + 1b — FINAL
+├── phase1a-20260421-084132/                 3B Phase 1a + 1c + 1b (21 tests)
 │   ├── pytest.log                           21 tests, 617 s
+│   └── verdict.json                         result=PASS
+├── phase1a-20260421-092348/                 3B Phase 1a + 1c + 1b + 1d — FINAL
+│   ├── pytest.log                           26 tests, 672 s
 │   └── verdict.json                         result=PASS
 └── phase1a-20260421-070618-prefix-nan-fp16/ historical fp16 failure archive
     ├── pytest.log                           2 failed / 4 passed (NaN at task-p1-002)
