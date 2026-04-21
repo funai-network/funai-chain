@@ -1,16 +1,26 @@
 """
 Phase 1 acceptance tests — single-machine replay bit-exact.
 
-Each test currently fails with ``NotImplementedError`` raised by the stub
-classes. Phase 1 implementation lands when all tests in this file pass.
+Current scope: Phase 1a (temperature=0 argmax, fixed-batch composition).
+Phases 1b (temperature>0 with ChaCha20 sampling) and 1c (dynamic batch
+composition) will add tests here as each lands.
 
 PASS criteria are hard-coded: ``max_abs_err == 0.0`` across all comparisons.
 Any non-zero drift at single-machine level indicates a determinism leak in
 the implementation, not a V6 architectural claim failure. Fix before
 proceeding to Phase 2.
+
+Environment overrides for quick iteration:
+- ``V6_MODEL`` — defaults to Qwen2.5-3B-Instruct (C0 baseline). Swap to
+  ``Qwen/Qwen2.5-0.5B-Instruct`` for a ~10× faster cycle when debugging
+  infrastructure issues.
+- ``V6_DEVICE`` — defaults to ``cuda``. Set ``cpu`` for laptop / CI smoke
+  tests with a tiny model (determinism still verifiable, just slower).
 """
 
 from __future__ import annotations
+
+import os
 
 import numpy as np
 import pytest
@@ -19,16 +29,18 @@ from .replay_engine import ReplayEngine
 from .replay_types import BatchLog
 from .worker_simulator import WorkerSimulator
 
-# Match C0 report's baseline (see docs/testing/reports/2026-04-20-1329-c0-fail).
-MODEL = "Qwen/Qwen2.5-3B-Instruct"
-DEVICE = "cuda"
+# Match C0 report's baseline by default; overridable for quick iteration.
+MODEL = os.environ.get("V6_MODEL", "Qwen/Qwen2.5-3B-Instruct")
+DEVICE = os.environ.get("V6_DEVICE", "cuda")
 PROMPTS = {
     "task-p1-001": "Write a short sentence about the night sky:",
     "task-p1-002": "List the first three primary colors:",
     "task-p1-003": "How many sides does a hexagon have?",
     "task-p1-004": "What is the capital of France?",
 }
-SAMPLING = dict(max_new_tokens=10, temperature=0.7, top_p=0.9, seed=42)
+# Phase 1a: argmax (temperature=0). Phase 1b will add a separate
+# temperature>0 test block.
+SAMPLING = dict(max_new_tokens=10, temperature=0.0, top_p=1.0, seed=42)
 
 
 @pytest.fixture(scope="module")

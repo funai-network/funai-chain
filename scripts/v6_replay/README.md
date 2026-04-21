@@ -74,29 +74,73 @@ means V6 research stops — fall back to Option B and either close
 
 ### Phase 1 — Single-machine replay bit-exact
 
+Phase 1 is internally staged to separate three concerns that can each
+fail independently. A KILL at any sub-phase sends V6 back to the drawing
+board; an INVESTIGATE must be resolved before the next sub-phase starts.
+
+| Sub-phase | Scope | V6 claim strength |
+|---|---|---|
+| 1a | `temperature=0` argmax; fixed batch (no joins/leaves) | Weakest — validates determinism floor only |
+| 1b | `temperature>0` with ChaCha20-seeded sampling; fixed batch | Validates sampling path is replayable |
+| 1c | `temperature>0`; **dynamic** batch composition (joins/leaves) | Validates V6's distinctive claim — batched continuous-batching is replayable when the schedule is recorded |
+
+Phase 1 PASS = 1a ∧ 1b ∧ 1c all PASS. A PASS on only 1a/1b is not enough
+to move to Phase 2 — Phase 2 extends 1c to cross-hardware, so 1c must
+work single-machine first.
+
+#### Phase 1a — temperature=0, fixed batch
+
 **Method.**
-- Pick model `Qwen/Qwen2.5-3B-Instruct` FP16 (same baseline as C0 — avoids
-  introducing a new hardware-availability gate).
-- Run `WorkerSimulator.run_batch(prompts=[P1..P4], temperature=0.7,
+- Model `Qwen/Qwen2.5-3B-Instruct` FP16 (C0 baseline). Override via
+  `V6_MODEL` env var for quicker iteration.
+- Run `WorkerSimulator.run_batch(prompts=[P1..P4], temperature=0.0,
   max_new_tokens=10)` once. Capture `(outputs, per-prompt logits at every
   position, batch_log)`.
-- Call `ReplayEngine.replay(batch_log, target_task_id=P1.task_id)`. Capture
-  the replayed logits for P1 at every position.
-- Diff the Worker's per-position logits for P1 against the replayed logits.
+- Call `ReplayEngine.replay(batch_log, target_task_id=P_i)` for each of
+  the 4 targets. Capture the replayed logits.
+- Diff the Worker's logits for target `P_i` against the replayed logits
+  for target `P_i`.
 
-**PASS condition.** `max_abs_err == 0.0` exactly, across all output positions
-of all 4 target prompts (re-run targeting each of P1..P4), across 3 repeated
-runs of the whole procedure. 12 Worker-vs-Replay comparisons, zero drift.
+**PASS condition.** `max_abs_err == 0.0` exactly, across all output
+positions of all 4 targets, across 3 repeated runs of the whole
+procedure. 12 Worker-vs-Replay comparisons, zero drift.
 
-**INVESTIGATE (not PASS, not KILL).** `max_abs_err ∈ (0, 1e-6]`. Suggests
-that implementation has a minor non-determinism leak — fix before
-proceeding to Phase 2. Likely causes: `torch.use_deterministic_algorithms`
-not set, dropout active in eval mode, PyTorch random state not seeded.
+**INVESTIGATE.** `max_abs_err ∈ (0, 1e-6]`. Suggests an implementation
+leak (dropout active, RNG not seeded, deterministic flag missing). Fix
+before moving on.
 
-**KILL.** `max_abs_err > 1e-6` and not fixable by deterministic-flag tuning,
-OR replay output text differs from Worker output text for the same seed.
-Means the manual-scheduler abstraction does not capture enough state to
-reproduce the batched execution. V6 dies; report findings; fall back to
+**KILL for Phase 1a.** `max_abs_err > 1e-6` and not fixable by
+deterministic-flag tuning, OR replay output text differs from Worker
+output text for the same seed. At this severity, the determinism floor
+V6 depends on is not reachable via transformers + flags on the PoC box.
+
+#### Phase 1b — temperature>0, fixed batch, deterministic sampling
+
+Adds seeded multinomial sampling (ChaCha20 per V5.2 §9.3 semantics) to
+Phase 1a. Same hardware, same batch composition.
+
+**PASS condition.** Same as 1a — `max_abs_err == 0.0` on logits, and
+identical sampled token IDs.
+
+**KILL for Phase 1b.** Logits match but sampled tokens differ → RNG
+state leak between Worker and Replayer (ChaCha20 seed derivation not
+identical). Or logits diverge → Phase 1a's determinism base regressed,
+unlikely but possible if the sampling path touches the model.
+
+#### Phase 1c — temperature>0, dynamic batch
+
+Adds tasks joining/leaving mid-batch. Worker's scheduler decides when
+each task is active; `BatchLog.steps` records the exact roster per step;
+`ReplayEngine.replay` executes the recorded roster.
+
+**PASS condition.** Same as 1b, plus: the `BatchLog` must contain at
+least one step where `active_task_ids` differs from the previous step
+(otherwise 1c degenerates to 1b).
+
+**KILL for Phase 1c.** `max_abs_err > 1e-6` on logits for a target that
+transits across a join/leave boundary. Means the manual-scheduler
+abstraction cannot capture enough state to reproduce the continuous-batch
+execution. **V6 dies at this gate.** Report findings; fall back to
 Option B.
 
 ### Phase 2 — Cross-hardware replay bit-exact
@@ -158,11 +202,13 @@ the C0 report convention ([`docs/testing/reports/2026-04-20-1329-c0-fail/verdict
 scripts/v6_replay/
 ├── README.md              # this file
 ├── requirements.txt       # torch, transformers, numpy, pytest
-├── types.py               # BatchStep, BatchLog dataclasses
+├── __init__.py            # package marker
+├── _common.py             # configure_determinism, load_model_and_tokenizer
+├── replay_types.py        # BatchStep, BatchLog, TaskLogits
 ├── worker_simulator.py    # WorkerSimulator.run_batch
 ├── replay_engine.py       # ReplayEngine.replay
-├── test_phase1.py         # Phase 1 acceptance test
-├── test_phase2.py         # Phase 2 acceptance test
+├── test_phase1.py         # Phase 1a/1b/1c acceptance tests
+├── test_phase2.py         # Phase 2 cross-hardware acceptance test
 └── results/               # phase run outputs (gitignored, created at run time)
 ```
 
@@ -197,12 +243,24 @@ pip install -r requirements.txt
 pytest -v test_phase1.py  # all fail with NotImplementedError — expected
 ```
 
-Phase 1 implementation fills in `WorkerSimulator` and `ReplayEngine`. Phase 1
-acceptance run:
+Phase 1a implementation fills in `WorkerSimulator` and `ReplayEngine`
+for argmax, fixed-batch generation. Acceptance:
 
 ```bash
-pytest -v test_phase1.py  # all pass when Phase 1 complete
+# default: Qwen2.5-3B-Instruct on cuda (C0 baseline)
+pytest -v test_phase1.py
+
+# quick iteration on a tiny model — validates the determinism path
+# without the 6 GB download:
+V6_MODEL=Qwen/Qwen2.5-0.5B-Instruct pytest -v test_phase1.py
+
+# CPU-only smoke test (very slow, but determinism is orthogonal to device):
+V6_MODEL=Qwen/Qwen2.5-0.5B-Instruct V6_DEVICE=cpu pytest -v test_phase1.py
 ```
+
+Phase 1b / 1c tests will land in this same file as the implementation
+grows; each sub-phase gets its own marker so `pytest -m phase1a` can
+target a specific stage.
 
 Phase 2 acceptance run (requires 2 GPU machines, see acceptance criteria §
 Phase 2 above):
