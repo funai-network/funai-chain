@@ -1,5 +1,32 @@
 # FunAI Chain Wiki — Operations Log
 
+## [2026-04-21 17:10 CST] result | V6 Phase 1b lands — ChaCha20 sampling replay bit-exact on Qwen2.5-3B
+
+**Operator:** Claude (LLM), dmldevai
+
+**Scope extension:** Phase 1 Single-machine now includes all three sub-phases. Phase 1b (temperature > 0 with V5.2 §9.3 ChaCha20-seeded sampling, composed on top of Phase 1c's dynamic batch) adds 9 tests, all PASS on Qwen2.5-3B:
+
+- `test_1b_sampling_not_argmax` — guard that sampling actually diverges from argmax (confirmed: ChaCha20 path fires).
+- `test_1b_replay_is_bit_exact_logits[001..004]` × 4 — logits bit-exact under temperature > 0.
+- `test_1b_replay_sampled_tokens_match[001..004]` × 4 — Worker and Replayer agree on every sampled token id.
+
+**Runtime:** 21 tests total (1a + 1c + 1b) in 616.93 s on Qwen2.5-3B-Instruct; 305.69 s on Qwen2.5-0.5B-Instruct. Sampling adds ~470 s of per-step 152k-vocab Python work on 3B — negligible impact on the load-bearing determinism claim, but a reminder that the PoC engine is not a throughput candidate.
+
+**Implementation:** commit `717cbcf` on `research/v6-replay-poc`. Key pieces:
+- `scripts/v6_replay/sampling.py` — `chacha20_sample` with fp32-throughout softmax (`np.add.accumulate` for strict token-id ascending order), stable-sort top-p filter, inverse-CDF via `np.searchsorted`, ChaCha20 keystream keyed on `SHA256(worker_seed || task_id)` (PoC simplification; V5.2 production derivation uses `SHA256(user_seed || dispatch_block_hash || task_id)`).
+- `TaskLogits.sampled_tokens` — new field on the PoC dataclass so Replay can return sampled tokens alongside logits.
+- `requirements.txt` adds `cryptography>=42` for ChaCha20.
+
+**Wiki pages updated:**
+- `wiki/test-status.md` — Phase 1 subsection expanded to list 1a / 1c.1 / 1c.2 / 1b with 21/21 PASS totals and ~400 bit-exact comparisons. Phase 2 now the sole remaining Phase-1/2 gate.
+- `wiki/log.md` — This entry.
+
+**Report update:** `docs/testing/reports/2026-04-21-v6-phase1a/report.md` now includes §3.4 (Phase 1b method + result), updated §3.5 aggregate, revised §6 "does not prove" table (Phase 1b crossed off), simplified §7 next steps (Phase 2 is sole P0; Phase 3 engine transition is the P1 gated by Phase 2), and a new final artifact entry `phase1a-20260421-084132/` (the 3B Phase 1a+1c+1b run). Earlier report sections preserved.
+
+**Custom image built from ECS 118.31.108.187:** includes `/root/v6-venv` (torch 2.5.1+cu121 + transformers 4.57.6 + cryptography 46 + numpy + deps) and `~/.cache/huggingface/` with Qwen2.5-0.5B and 3B weights. Phase 2 provisioning reuses this image — boot to pytest in ~5 min.
+
+---
+
 ## [2026-04-21 16:05 CST] result | V6 Phase 1 PASS — single-machine replay bit-exact on Qwen2.5-3B
 
 **Operator:** Claude (LLM), dmldevai

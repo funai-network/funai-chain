@@ -92,17 +92,18 @@ Two parallel test tracks on pinned TGI `3.3.6` + Qwen2.5-8B-Instruct FP16.
 
 ### V6 Batch-Replay PoC — Phase 1 (single machine) PASS 2026-04-21
 
-The V6 Batch-Replay design ([`docs/protocol/FunAI_V6_BatchReplay_Design.md`](../docs/protocol/FunAI_V6_BatchReplay_Design.md)) replaces the V5.2 single-request-Verifier scheme with a log-driven replay: Worker records per-step batch composition, Verifier replays that exact schedule. The PoC at `scripts/v6_replay/` validates this ahead of any protocol rewrite. Phase 1 (single machine) complete:
+The V6 Batch-Replay design ([`docs/protocol/FunAI_V6_BatchReplay_Design.md`](../docs/protocol/FunAI_V6_BatchReplay_Design.md)) replaces the V5.2 single-request-Verifier scheme with a log-driven replay: Worker records per-step batch composition, Verifier replays that exact schedule. The PoC at `scripts/v6_replay/` validates this ahead of any protocol rewrite. Phase 1 (single machine) complete — all three sub-phases:
 
 | Sub-phase | Scope | Model | Result |
 |---|---|---|---|
-| **1a** | temperature=0, fixed-batch, prefill+decode KV cache | Qwen2.5-3B-Instruct | PASS 6/6, 62 s |
+| **1a** | temperature=0, fixed-batch, prefill+decode KV cache | Qwen2.5-3B-Instruct | PASS 6/6 |
 | **1c.1** | dynamic batch, leave-only schedule, recompute-from-scratch | Qwen2.5-3B-Instruct | PASS 3/3 |
-| **1c.2** | dynamic batch, join+leave schedule | Qwen2.5-3B-Instruct | **PASS 3/3 — V6 A1 claim validated on single machine** |
+| **1c.2** | dynamic batch, join+leave schedule | Qwen2.5-3B-Instruct | PASS 3/3 |
+| **1b** | temperature=0.7, top_p=0.9, ChaCha20-seeded sampling on the join+leave schedule | Qwen2.5-3B-Instruct | **PASS 9/9 — V6 A1 complete on single machine, logits + sampled tokens both bit-exact** |
 
-All on Aliyun A10 + bfloat16 + HuggingFace transformers + eager attention + strict determinism flags. 12 / 12 tests PASS, `max_abs_err == 0.0` across ~200 bit-exact comparisons. Full report: [`docs/testing/reports/2026-04-21-v6-phase1a/report.md`](../docs/testing/reports/2026-04-21-v6-phase1a/report.md).
+All on Aliyun A10 + bfloat16 + HuggingFace transformers + eager attention + strict determinism flags. 21 / 21 tests PASS, `max_abs_err == 0.0` on logits + zero sampling-token mismatches across ~400 bit-exact comparisons. Full report: [`docs/testing/reports/2026-04-21-v6-phase1a/report.md`](../docs/testing/reports/2026-04-21-v6-phase1a/report.md).
 
-**C1-C4 and TPS-layer tests remain paused** — V6 supersedes them pending the engine-transition work in Phase 3+. Next open gate is **Phase 2** (cross-hardware A2 validation — same replay path on a different SM architecture, expected 4090 or A100). Phase 1b (ChaCha20 sampling under dynamic batch) parallelisable.
+**C1-C4 and TPS-layer tests remain paused** — V6 supersedes them pending the engine-transition work in Phase 3+. The only remaining V6 Phase-1/2 gate is **Phase 2** (cross-hardware A2 validation — same replay path on a different SM architecture, expected 4090 or A100). A custom image was built from the Phase 1 ECS so Phase 2 provisioning skips dep-install + model-download cold-start.
 
 ### TPS stress (5 layers)
 

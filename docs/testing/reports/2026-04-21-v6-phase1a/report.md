@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Date** | 2026-04-21 16:05 CST (08:05 UTC reference) |
+| **Date** | 2026-04-21 17:10 CST (09:10 UTC reference) — Phase 1b addendum folded in |
 | **Operator** | dmldevai |
-| **Test** | [`scripts/v6_replay/README.md`](../../../scripts/v6_replay/README.md) §Phase 1a + §Phase 1c |
-| **Verdict** | **PASS** (single machine; Phase 2 cross-hardware still open) |
-| **Unblocks** | Phase 2 (cross-hardware A2 validation); Phase 1b (ChaCha20 sampling) |
+| **Test** | [`scripts/v6_replay/README.md`](../../../scripts/v6_replay/README.md) §Phase 1a + §Phase 1c + §Phase 1b |
+| **Verdict** | **PASS** (single machine; all three sub-phases) |
+| **Unblocks** | Phase 2 (cross-hardware A2 validation) — the last remaining Phase-1/2 gate before V6 protocol work |
 
 ---
 
@@ -25,17 +25,21 @@ This report covers Phase 1 of the PoC at `scripts/v6_replay/`, which addresses
 
 **Result: on a single Alibaba Cloud A10 + Qwen2.5-3B-Instruct + bf16 + eager
 attention + HuggingFace transformers, the Worker can emit a BatchLog
-describing any schedule (fixed-batch, leave-only, join+leave) and a separate
-Replayer can reconstruct bit-exact logits for every target at every step
-where it was active.** 12 / 12 acceptance tests pass with `max_abs_err ==
-0.0` across 4 prompts × varying active-step counts × multiple targets. A1
-is therefore not a speculative claim on this stack — it is reproducible.
+describing any schedule (fixed-batch, leave-only, join+leave) at any
+sampling setting (argmax *and* ChaCha20-seeded temperature>0), and a
+separate Replayer can reconstruct bit-exact logits *and* bit-exact sampled
+token ids for every target at every step where it was active.** 21 / 21
+acceptance tests pass with `max_abs_err == 0.0` across ~400 bit-exact
+comparisons. A1 is therefore not a speculative claim on this stack — it
+is reproducible across all three sub-phases (1a, 1c, 1b).
 
 **What this does not yet prove:** A2 (cross-hardware). Phase 2 requires a
 second GPU of a different SM architecture (4090 or A100) running the same
 Replayer against a BatchLog shipped from the A10 Worker. Until that run
 succeeds, V6's verification architecture is *single-hardware* — insufficient
 for production where Workers and Verifiers run on heterogeneous GPUs.
+A ready-to-provision custom image from this ECS is available (see §7 P0),
+so the Phase 2 box can reach pytest inside ~5 minutes of boot.
 
 ---
 
@@ -160,17 +164,59 @@ test_1c_join_log_matches_schedule                             PASSED
 test_1c_join_replay_bit_exact                                 PASSED
 ```
 
-### 3.4 Aggregate
+### 3.4 Phase 1b — temperature > 0 with ChaCha20 sampling, dynamic batch
+
+**Method.** Same JOIN_SCHEDULE as §3.3 but with `temperature=0.7`, `top_p=0.9`.
+Both Worker and Replayer sample via `chacha20_sample`
+([`scripts/v6_replay/sampling.py`](../../../scripts/v6_replay/sampling.py)) per
+V5.2 §9.3 — fp32 throughout, strict token-id ascending softmax via
+`np.add.accumulate`, top-p filter by stable descending sort, inverse-CDF
+sampling using a uniform float drawn from 4 bytes of ChaCha20 keystream.
+
+Per-task ChaCha20 key is
+`final_seed = SHA256(worker_seed || task_id)` (PoC simplification — V5.2
+production uses `SHA256(user_seed || dispatch_block_hash || task_id)`).
+Per-step nonce is the decode `step_index` encoded as little-endian.
+
+**PASS condition.**
+
+1. *Logits bit-exact.* Under temperature > 0 the forward-pass numerical
+   path is unchanged from Phase 1c, so `max_abs_err == 0.0` must still
+   hold on logits.
+2. *Sampled tokens identical.* Worker and Replayer must agree on every
+   sampled token, since bit-exact logits + identical ChaCha20 PRNG state
+   give identical inverse-CDF output.
+3. *Sampling ≠ argmax somewhere.* Guard test: if every sampled token
+   matches `argmax(logits)`, temperature=0.7 has coincidentally reduced
+   to greedy and this test block isn't actually exercising the ChaCha20
+   path. At least one divergence required.
+
+**Result.** 9 / 9 PASS:
+
+```
+test_1b_sampling_not_argmax                                   PASSED
+test_1b_replay_is_bit_exact_logits[task-p1-001..004]          PASSED
+test_1b_replay_sampled_tokens_match[task-p1-001..004]         PASSED
+```
+
+`max_abs_err == 0.0` on logits; worker.sampled_tokens == replay.sampled_tokens
+for every target at every active step; `sampling_not_argmax` confirmed
+the ChaCha20 path fires (sampled tokens diverge from argmax on at least
+one step of one target — not all, since high-confidence positions
+collapse both paths to the same id).
+
+### 3.5 Aggregate
 
 | Metric | Value |
 |---|---|
-| Tests run | 12 |
-| Tests passed | **12** |
+| Tests run | 21 |
+| Tests passed | **21** |
 | Tests failed | 0 |
-| Total wall time on 3B | 140.42 s (incl. fixture model load) |
-| Total wall time on 0.5B | 266.81 s (slower per test — 0.5B 3-repeats fixture amortises less) |
-| Bit-exact comparisons | ~200 (4 targets × varying active-step counts across 3 schedules) |
-| `max_abs_err_seen` | `0.0` on every comparison |
+| Total wall time on 3B | 616.93 s (incl. fixture model load; 1b adds ~470 s from per-step 152k-vocab Python sampling) |
+| Total wall time on 0.5B | 305.69 s |
+| Bit-exact comparisons | ~400 (logits + sampled tokens, 3 schedules × 4 targets × varying active steps) |
+| `max_abs_err_seen` on logits | `0.0` on every comparison |
+| Sampled-token mismatches Worker vs Replayer | 0 across all Phase 1b cases |
 
 ---
 
@@ -267,8 +313,8 @@ need an independent answer during the Phase 3 engine transition.
 | Claim | Status |
 |---|---|
 | V6 A1 on single machine, transformers + bf16 + eager + A10 | ✅ Proven here |
+| Determinism under `temperature > 0` + ChaCha20-seeded sampling | ✅ Proven here (Phase 1b, §3.4) |
 | V6 A2 (cross-hardware bit-exact) | ⏳ Open (Phase 2) |
-| Determinism under `temperature > 0` + seeded sampling | ⏳ Open (Phase 1b) |
 | Replay on TGI or vLLM instead of transformers | ⏳ Open (Phase 3+) |
 | Same Worker-Replayer determinism under fp16 | ⏳ Open (hardware / production-engine dependent) |
 | Worker throughput acceptable for mainnet | ❌ Transformers PoC is 10-20× slower than TGI; not a production concern until Phase 3 |
@@ -288,30 +334,22 @@ need an independent answer during the Phase 3 engine transition.
    PASS there means A2 holds under the transformers path. FAIL there
    confirms that cross-hardware determinism requires a mitigation beyond
    "same engine + same flags" — at which point V6 needs to re-scope.
+   A ready-to-deploy custom image was built from this ECS after Phase 1b
+   completed (includes `/root/v6-venv` + Qwen2.5-0.5B+3B weights), so the
+   Phase 2 box can skip dep-install and model-download and go directly
+   to rsync+pytest.
 
-### P1 — parallelisable with P0
+### P1 — gated by P0 outcome
 
-2. **Phase 1b (ChaCha20 sampling)**: extend `run_batch_dynamic` to accept
-   `temperature > 0` with ChaCha20-seeded multinomial sampling. ~150 LOC
-   for the sampling primitive + test coverage; no new hardware required.
-   Unblocks V6 design item #11 (ChaCha20 100% coverage) from a PoC
-   standpoint.
+2. **Phase 3 engine transition scope**: once P0 Phase 2 produces a result
+   (PASS or KILL), scope either (a) a TGI fork with a replay-schedule API,
+   (b) a vLLM fork of the same, or (c) a self-built deterministic
+   continuous-batching runtime based on the `transformers.Cache` interface.
+   Deferred until Phase 2 lands — engine choice depends on whether
+   cross-hardware bit-exactness requires engine-level intervention or
+   flag-level discipline.
 
-3. **Image build on this ECS** (in progress at report time): snapshot the
-   fully-configured environment so subsequent Phase-2/3 runs skip the
-   ~3-minute dep-install + ~10-minute model-download cold-start. Cached
-   state includes `/root/v6-venv` (torch + transformers) and
-   `~/.cache/huggingface/` (Qwen2.5-0.5B + 3B weights).
-
-### P2 — follow-ups gated by P0 outcome
-
-4. **Phase 3 engine transition spike**: if P0 Phase 2 passes, start scoping
-   either (a) a TGI fork with a `replay-schedule` API, (b) a vLLM fork of
-   the same, or (c) a self-built deterministic continuous-batching runtime
-   based on `transformers.Cache` interface. 2–3 months each; pick based
-   on Phase 2 confidence.
-
-5. **V6 design note updates**: mark Phase 1 as "validated by PoC 2026-04-21"
+3. **V6 design note updates**: mark Phase 1 as "validated by PoC 2026-04-21"
    in [`docs/protocol/FunAI_V6_BatchReplay_Design.md`](../../protocol/FunAI_V6_BatchReplay_Design.md);
    cross-reference to this report.
 
@@ -324,11 +362,14 @@ Captured under the same report directory:
 ```
 docs/testing/reports/2026-04-21-v6-phase1a/
 ├── report.md                              this file
-├── phase1a-20260421-073528/                 3B Phase 1a only (pre-Phase-1c)
+├── phase1a-20260421-073528/                 3B Phase 1a only (initial acceptance)
 │   ├── pytest.log                           6 tests, 62 s
 │   └── verdict.json                         result=PASS
-├── phase1a-20260421-080515/                 3B Phase 1a + 1c combined — final
+├── phase1a-20260421-080515/                 3B Phase 1a + 1c (intermediate)
 │   ├── pytest.log                           12 tests, 140 s
+│   └── verdict.json                         result=PASS
+├── phase1a-20260421-084132/                 3B Phase 1a + 1c + 1b — FINAL
+│   ├── pytest.log                           21 tests, 617 s
 │   └── verdict.json                         result=PASS
 └── phase1a-20260421-070618-prefix-nan-fp16/ historical fp16 failure archive
     ├── pytest.log                           2 failed / 4 passed (NaN at task-p1-002)
@@ -379,6 +420,8 @@ files). Cosmetic; the executed test logic matches what is pushed to
   - `3dd5496` `SKIP_SYNC` bootstrap flag
   - `fd75611` bf16 + China mirror support
   - `06cc89a` Phase 1c — dynamic batch composition
+  - `5cab0ea` Phase 1 PASS report (initial, Phase 1a + 1c)
+  - `717cbcf` Phase 1b — temperature>0 + ChaCha20 sampling
 
 ---
 
