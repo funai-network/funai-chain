@@ -5,12 +5,12 @@ These tests require artifacts produced by a Worker run on a DIFFERENT GPU
 than the one running pytest. Invocation:
 
     # on machine A (Worker, e.g. T4):
-    python -m scripts.v6-replay.worker_simulator \
+    python -m scripts.v6_replay.worker_simulator \
         --model Qwen/Qwen2.5-3B-Instruct \
         --emit-log /tmp/phase2-run.pkl
     scp /tmp/phase2-run.pkl machineB:/tmp/
     # on machine B (Replayer, e.g. RTX 5090):
-    pytest -v scripts/v6-replay/test_phase2.py \
+    pytest -v scripts/v6_replay/test_phase2.py \
         --worker-artifact=/tmp/phase2-run.pkl
 
 A hook for the ``--worker-artifact`` flag lives in Phase 1's conftest (to be

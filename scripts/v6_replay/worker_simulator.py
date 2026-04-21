@@ -69,5 +69,5 @@ class WorkerSimulator:
         raise NotImplementedError(
             "Phase 1: implement continuous-batching on HuggingFace transformers "
             "with the determinism contract documented in WorkerSimulator's "
-            "docstring. See scripts/v6-replay/README.md §Phase 1."
+            "docstring. See scripts/v6_replay/README.md §Phase 1."
         )

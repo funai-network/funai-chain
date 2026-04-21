@@ -17,10 +17,10 @@
 - D2: V6's deprecation of the "verification proxy" concept also retires the in-progress Option B design. User decision: V6-only, not V6 + Option B bridging.
 
 **PoC scaffold added (Phase 0, `research/v6-replay-poc` branch):**
-- `scripts/v6-replay/README.md` — 3-phase plan, hard PASS / INVESTIGATE / KILL conditions per phase, engine-choice rationale (transformers-based, not TGI/vLLM).
-- `scripts/v6-replay/{replay_types.py, worker_simulator.py, replay_engine.py}` — signature-only stubs with determinism contracts documented in docstrings.
-- `scripts/v6-replay/{test_phase1.py, test_phase2.py}` — pytest skeletons that fail with `NotImplementedError` until Phase 1 lands; serve as executable acceptance criteria.
-- `scripts/v6-replay/requirements.txt`, `__init__.py`.
+- `scripts/v6_replay/README.md` — 3-phase plan, hard PASS / INVESTIGATE / KILL conditions per phase, engine-choice rationale (transformers-based, not TGI/vLLM).
+- `scripts/v6_replay/{replay_types.py, worker_simulator.py, replay_engine.py}` — signature-only stubs with determinism contracts documented in docstrings.
+- `scripts/v6_replay/{test_phase1.py, test_phase2.py}` — pytest skeletons that fail with `NotImplementedError` until Phase 1 lands; serve as executable acceptance criteria.
+- `scripts/v6_replay/requirements.txt`, `__init__.py`.
 
 **Wiki pages updated:**
 - `wiki/index.md` — Added row under Operations & Status; header bumped to 26 sources / 2026-04-21.

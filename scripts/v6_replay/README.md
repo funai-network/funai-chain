@@ -65,8 +65,8 @@ means V6 research stops — fall back to Option B and either close
 ### Phase 0 — Scaffold (this PR)
 
 **PASS when:**
-- `scripts/v6-replay/` directory exists with all files listed below
-- `pytest scripts/v6-replay/` runs and fails with clear `NotImplementedError`
+- `scripts/v6_replay/` directory exists with all files listed below
+- `pytest scripts/v6_replay/` runs and fails with clear `NotImplementedError`
   messages referencing the methods that still need to be written
 - Python syntax is clean (`python -m py_compile` on every `.py`)
 
@@ -148,14 +148,14 @@ the C0 report convention ([`docs/testing/reports/2026-04-20-1329-c0-fail/verdict
   },
   "thresholds": { "pass": 0.0, "investigate": 1e-06 },
   "config": { ... },
-  "artifacts_dir": "scripts/v6-replay/results/phaseN-<timestamp>/"
+  "artifacts_dir": "scripts/v6_replay/results/phaseN-<timestamp>/"
 }
 ```
 
 ## Directory layout
 
 ```
-scripts/v6-replay/
+scripts/v6_replay/
 ├── README.md              # this file
 ├── requirements.txt       # torch, transformers, numpy, pytest
 ├── types.py               # BatchStep, BatchLog dataclasses
@@ -192,7 +192,7 @@ Phase 0 only exists to gate the contract. There is nothing to run yet except
 the failing test skeletons:
 
 ```bash
-cd scripts/v6-replay
+cd scripts/v6_replay
 pip install -r requirements.txt
 pytest -v test_phase1.py  # all fail with NotImplementedError — expected
 ```
@@ -209,7 +209,7 @@ Phase 2 above):
 
 ```bash
 # on machine A
-python -m scripts.v6-replay.worker_simulator --emit-log phase2-run1.json
+python -m scripts.v6_replay.worker_simulator --emit-log phase2-run1.json
 # transfer phase2-run1.json to machine B
 # on machine B
 pytest -v test_phase2.py --log=phase2-run1.json

@@ -53,5 +53,5 @@ class ReplayEngine:
         raise NotImplementedError(
             "Phase 1: implement log-driven replay on HuggingFace transformers "
             "with the determinism contract documented in ReplayEngine's "
-            "docstring. See scripts/v6-replay/README.md §Phase 1."
+            "docstring. See scripts/v6_replay/README.md §Phase 1."
         )
