@@ -43,6 +43,15 @@ class BatchLog:
     task_prompts: dict[str, str]
     steps: list[BatchStep] = field(default_factory=list)
     dtype: str = "float16"
+    # KT v2 §2.5 — engine version pinning. In V6 production these are
+    # registered on-chain at model_id creation time and Worker/Verifier must
+    # match. At PoC level the Worker populates these from its runtime env,
+    # and the ReplayEngine rejects any log whose engine metadata does not
+    # match its own. Mismatch detection is what enforces the same-engine
+    # constraint in the absence of on-chain model registry.
+    engine_id: str = "transformers"
+    engine_version: str = ""       # e.g. "4.57.6"
+    attention_impl: str = "eager"  # "eager" | "sdpa" | "flash_attention_2" | ...
 
     def active_step_indices(self, task_id: str) -> list[int]:
         """Return the decode step indices where ``task_id`` was active."""

@@ -335,3 +335,196 @@ def test_1b_replay_sampled_tokens_match(phase1b_worker_run, target):
         f"Phase 1b KILL (sampling): target={target} "
         f"worker={worker_logits[target].sampled_tokens} != replay={replayed.sampled_tokens}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1d — robustness sweep + KT v2 §2.5 engine metadata
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Phase 1a-1c established determinism under small, narrow inputs. Phase 1d
+# pushes the scale along each axis KT v2 §7 identified as a potential
+# failure source and checks the bit-exactness claim still holds:
+#
+#   §7.1 scheduler hidden state     → larger batch (12 tasks)
+#   §7.2 chunked-prefill boundaries → longer prompts (~300 tokens)
+#   §7.3 join/leave boundaries      → multi-phase dynamic schedule
+#   §7.5 VRAM-feasibility sanity    → long generation (30 steps)
+#   §2.5 engine pinning             → mismatch-rejection guard
+#
+# A PASS extends the operating envelope under which V6 A1 is known to
+# hold on this hardware; a FAIL pinpoints the exact scale at which
+# determinism leaks, which would be a useful diagnostic before Phase 2
+# cross-hardware.
+
+
+def test_1d_engine_mismatch_rejected():
+    """KT v2 §2.5 — Replayer must refuse a log whose engine metadata does
+    not match its own runtime. Guard test: tamper with engine_version,
+    expect ValueError."""
+    w = WorkerSimulator(MODEL, DEVICE)
+    small_prompts = dict(list(PROMPTS.items())[:2])
+    small_schedule = {tid: (0, 3) for tid in small_prompts}
+    _, log, _ = w.run_batch_dynamic(
+        small_prompts, small_schedule, temperature=0.0, top_p=1.0, seed=42,
+    )
+    # Tamper. Worker's real version is correct; we simulate a Verifier
+    # running an older/newer transformers that the Worker was not told
+    # about.
+    log.engine_version = "9.99.99-bogus"
+    r = ReplayEngine(MODEL, DEVICE)
+    with pytest.raises(ValueError, match="engine_version"):
+        r.replay_dynamic(log, target_task_id=list(small_prompts)[0])
+
+
+# Large-batch test — 12 tasks, fixed composition, 10 steps.
+LARGE_PROMPTS = {
+    f"task-1d-large-{i:02d}": f"Question {i}. Please give a very short answer: what is {i} plus {i}?"
+    for i in range(12)
+}
+LARGE_SCHEDULE = {tid: (0, 10) for tid in LARGE_PROMPTS}
+
+
+@pytest.fixture(scope="module")
+def large_batch_run():
+    w = WorkerSimulator(MODEL, DEVICE)
+    return w.run_batch_dynamic(
+        LARGE_PROMPTS, LARGE_SCHEDULE, temperature=0.0, top_p=1.0, seed=42,
+    )
+
+
+def test_1d_large_batch_bit_exact(large_batch_run):
+    """12 tasks concurrent. If scheduler hidden state (KT v2 §7.1) depends
+    on batch size, we'd see drift here but not in the 4-task tests."""
+    _, log, worker_logits = large_batch_run
+    r = ReplayEngine(MODEL, DEVICE)
+    # Sample a subset of targets to keep runtime bounded — 3 is enough.
+    for target in list(LARGE_PROMPTS)[:3]:
+        replayed = r.replay_dynamic(log, target_task_id=target)
+        w_logits = worker_logits[target].logits
+        rp_logits = replayed.logits
+        assert len(w_logits) == len(rp_logits)
+        for i, (ws, rs) in enumerate(zip(w_logits, rp_logits)):
+            diff = float(np.max(np.abs(np.asarray(ws) - np.asarray(rs))))
+            assert diff == 0.0, (
+                f"Phase 1d KILL (large batch): target={target} step={i} "
+                f"max_abs_err={diff:g}"
+            )
+
+
+# Long-prompt test — 4 tasks, ~300-token prompts.
+_FILLER = (
+    "The quick brown fox jumps over the lazy dog and then the slow "
+    "purple cat reads a long book about the history of mathematics, "
+    "including the work of Euclid, Newton, Leibniz, Gauss, Riemann, and "
+    "Euler. " * 6
+)
+LONG_PROMPTS = {
+    f"task-1d-long-{i:02d}": f"{_FILLER}Question {i}: what is the sum of {i} and {i + 1}?"
+    for i in range(4)
+}
+LONG_SCHEDULE = {tid: (0, 10) for tid in LONG_PROMPTS}
+
+
+@pytest.fixture(scope="module")
+def long_prompt_run():
+    w = WorkerSimulator(MODEL, DEVICE)
+    return w.run_batch_dynamic(
+        LONG_PROMPTS, LONG_SCHEDULE, temperature=0.0, top_p=1.0, seed=42,
+    )
+
+
+def test_1d_long_prompts_bit_exact(long_prompt_run):
+    """~300-token prompts. If chunked-prefill split points (KT v2 §7.2)
+    aren't deterministic we'd see drift. transformers doesn't chunk
+    prefill by default, so this is more of a sanity check that long
+    contexts don't trip some other overflow path."""
+    _, log, worker_logits = long_prompt_run
+    r = ReplayEngine(MODEL, DEVICE)
+    for target in list(LONG_PROMPTS)[:2]:
+        replayed = r.replay_dynamic(log, target_task_id=target)
+        w_logits = worker_logits[target].logits
+        rp_logits = replayed.logits
+        for i, (ws, rs) in enumerate(zip(w_logits, rp_logits)):
+            diff = float(np.max(np.abs(np.asarray(ws) - np.asarray(rs))))
+            assert diff == 0.0, (
+                f"Phase 1d KILL (long prompts): target={target} step={i} "
+                f"max_abs_err={diff:g}"
+            )
+
+
+# Long-generation test — 4 tasks, 30 max_new_tokens, fixed composition.
+LONG_GEN_SCHEDULE = {tid: (0, 30) for tid in PROMPTS}
+
+
+@pytest.fixture(scope="module")
+def long_gen_run():
+    w = WorkerSimulator(MODEL, DEVICE)
+    return w.run_batch_dynamic(
+        PROMPTS, LONG_GEN_SCHEDULE, temperature=0.0, top_p=1.0, seed=42,
+    )
+
+
+def test_1d_long_generation_bit_exact(long_gen_run):
+    """30 decode steps. Probes whether error accumulates across many
+    steps even under determinism — shouldn't, but if it does, we'd
+    want to know before Phase 2."""
+    _, log, worker_logits = long_gen_run
+    r = ReplayEngine(MODEL, DEVICE)
+    for target in list(PROMPTS)[:2]:
+        replayed = r.replay_dynamic(log, target_task_id=target)
+        w_logits = worker_logits[target].logits
+        rp_logits = replayed.logits
+        assert len(w_logits) == 30 and len(rp_logits) == 30
+        for i, (ws, rs) in enumerate(zip(w_logits, rp_logits)):
+            diff = float(np.max(np.abs(np.asarray(ws) - np.asarray(rs))))
+            assert diff == 0.0, (
+                f"Phase 1d KILL (long gen): target={target} step={i} "
+                f"max_abs_err={diff:g}"
+            )
+
+
+# Complex-schedule test — 6 tasks, rosters change at steps 3, 5, 7, 8.
+COMPLEX_PROMPTS = {
+    f"task-1d-complex-{i:02d}": f"Trivia {i}: what colour is the sky on a clear day?"
+    for i in range(6)
+}
+COMPLEX_SCHEDULE = {
+    "task-1d-complex-00": (0, 10),  # runs full length
+    "task-1d-complex-01": (0, 8),   # leaves at 8
+    "task-1d-complex-02": (0, 5),   # leaves at 5
+    "task-1d-complex-03": (3, 10),  # joins at 3
+    "task-1d-complex-04": (5, 10),  # joins at 5 (same step 02 leaves)
+    "task-1d-complex-05": (7, 10),  # joins at 7
+}
+
+
+@pytest.fixture(scope="module")
+def complex_schedule_run():
+    w = WorkerSimulator(MODEL, DEVICE)
+    return w.run_batch_dynamic(
+        COMPLEX_PROMPTS, COMPLEX_SCHEDULE, temperature=0.0, top_p=1.0, seed=42,
+    )
+
+
+def test_1d_complex_schedule_bit_exact(complex_schedule_run):
+    """Four composition changes across 10 steps (join at 3, leave+join at 5,
+    join at 7, leave at 8). Stress-tests KT v2 §7.3 join/leave boundary
+    handling under denser transitions than JOIN_SCHEDULE."""
+    _, log, worker_logits = complex_schedule_run
+    r = ReplayEngine(MODEL, DEVICE)
+    # Check every target, since the point of this test is schedule density.
+    for target in COMPLEX_PROMPTS:
+        replayed = r.replay_dynamic(log, target_task_id=target)
+        expected_steps = (
+            COMPLEX_SCHEDULE[target][1] - COMPLEX_SCHEDULE[target][0]
+        )
+        w_logits = worker_logits[target].logits
+        rp_logits = replayed.logits
+        assert len(w_logits) == expected_steps
+        assert len(rp_logits) == expected_steps
+        for i, (ws, rs) in enumerate(zip(w_logits, rp_logits)):
+            diff = float(np.max(np.abs(np.asarray(ws) - np.asarray(rs))))
+            assert diff == 0.0, (
+                f"Phase 1d KILL (complex schedule): target={target} step={i} "
+                f"max_abs_err={diff:g}"
+            )

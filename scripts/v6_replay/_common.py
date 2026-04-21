@@ -16,7 +16,20 @@ import os
 
 import numpy as np
 import torch
+import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# KT v2 §2.5 — identity of the inference engine used here. These are
+# embedded in every BatchLog the Worker emits and checked by the Replayer;
+# a mismatch is a hard error, not a warning, because at the PoC level we
+# have no on-chain model_id registry to cross-validate against.
+ENGINE_ID = "transformers"
+ATTENTION_IMPL = "eager"
+
+
+def engine_version() -> str:
+    """Return the transformers version string (e.g. '4.57.6')."""
+    return transformers.__version__
 
 
 def configure_determinism(seed: int) -> None:

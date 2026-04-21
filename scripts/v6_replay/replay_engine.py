@@ -20,9 +20,46 @@ import torch
 
 import numpy as np
 
-from ._common import configure_determinism, load_model_and_tokenizer
+from ._common import (
+    ATTENTION_IMPL,
+    ENGINE_ID,
+    configure_determinism,
+    engine_version,
+    load_model_and_tokenizer,
+)
 from .replay_types import BatchLog, TaskLogits
 from .sampling import chacha20_sample, derive_final_seed
+
+
+def _check_engine_match(batch_log: BatchLog) -> None:
+    """
+    KT v2 §2.5 — reject any log that was produced by a different engine /
+    version / attention impl than the current runtime.
+
+    In V6 production this is enforced implicitly via `model_id` registration:
+    Worker and Verifier can only run a model if they use the version
+    declared by the proposer. At PoC level we check explicitly because the
+    BatchLog carries the Worker's runtime metadata and the Replayer has no
+    on-chain registry to cross-validate against.
+    """
+    current_version = engine_version()
+    mismatches = []
+    if batch_log.engine_id != ENGINE_ID:
+        mismatches.append(f"engine_id: {batch_log.engine_id!r} vs {ENGINE_ID!r}")
+    if batch_log.engine_version and batch_log.engine_version != current_version:
+        mismatches.append(
+            f"engine_version: {batch_log.engine_version!r} vs {current_version!r}"
+        )
+    if batch_log.attention_impl != ATTENTION_IMPL:
+        mismatches.append(
+            f"attention_impl: {batch_log.attention_impl!r} vs {ATTENTION_IMPL!r}"
+        )
+    if mismatches:
+        raise ValueError(
+            "BatchLog engine metadata does not match Replayer runtime — "
+            "per KT v2 §2.5 Worker and Verifier must use the same engine + "
+            "version + attention impl. Mismatches: " + "; ".join(mismatches)
+        )
 
 
 class ReplayEngine:
@@ -49,6 +86,7 @@ class ReplayEngine:
                 f"ReplayEngine.model_id={self.model_id!r}"
             )
 
+        _check_engine_match(batch_log)
         configure_determinism(batch_log.seed)
 
         self._require_fixed_composition(batch_log)
@@ -162,6 +200,7 @@ class ReplayEngine:
         if not batch_log.steps:
             raise ValueError("batch_log.steps is empty")
 
+        _check_engine_match(batch_log)
         configure_determinism(batch_log.seed)
 
         prompt_ids: dict[str, list[int]] = {

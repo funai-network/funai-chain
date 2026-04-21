@@ -34,7 +34,13 @@ from typing import Any
 import numpy as np
 import torch
 
-from ._common import configure_determinism, load_model_and_tokenizer
+from ._common import (
+    ATTENTION_IMPL,
+    ENGINE_ID,
+    configure_determinism,
+    engine_version,
+    load_model_and_tokenizer,
+)
 from .replay_types import BatchLog, BatchStep, TaskLogits
 from .sampling import chacha20_sample, derive_final_seed
 
@@ -111,6 +117,9 @@ class WorkerSimulator:
             task_prompts=dict(task_prompts),
             steps=steps,
             dtype="bfloat16",
+            engine_id=ENGINE_ID,
+            engine_version=engine_version(),
+            attention_impl=ATTENTION_IMPL,
         )
 
         task_logits = {
@@ -300,6 +309,9 @@ class WorkerSimulator:
             task_prompts=dict(task_prompts),
             steps=steps,
             dtype="bfloat16",
+            engine_id=ENGINE_ID,
+            engine_version=engine_version(),
+            attention_impl=ATTENTION_IMPL,
         )
 
         task_logits = {
