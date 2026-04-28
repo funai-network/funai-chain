@@ -1,0 +1,45 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/funai-chain
+plugins: anyio-4.11.0
+collecting ... collected 23 items
+
+scripts/v6_replay/test_phase1_moe.py::test_schedule_is_truly_dynamic Unrecognized keys in `rope_scaling` for 'rope_type'='longrope': {'long_mscale', 'short_mscale'}
+This model has set a `original_max_position_embeddings` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_scaling`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+Loading checkpoint shards:   0%|          | 0/17 [00:00<?, ?it/s]Loading checkpoint shards:   6%|▌         | 1/17 [00:00<00:08,  1.82it/s]Loading checkpoint shards:  12%|█▏        | 2/17 [00:01<00:08,  1.75it/s]Loading checkpoint shards:  18%|█▊        | 3/17 [00:01<00:08,  1.72it/s]Loading checkpoint shards:  24%|██▎       | 4/17 [00:02<00:07,  1.71it/s]Loading checkpoint shards:  29%|██▉       | 5/17 [00:02<00:07,  1.69it/s]Loading checkpoint shards:  35%|███▌      | 6/17 [00:03<00:06,  1.68it/s]Loading checkpoint shards:  41%|████      | 7/17 [00:04<00:05,  1.68it/s]Loading checkpoint shards:  47%|████▋     | 8/17 [00:04<00:05,  1.70it/s]Loading checkpoint shards:  53%|█████▎    | 9/17 [00:05<00:04,  1.82it/s]Loading checkpoint shards:  59%|█████▉    | 10/17 [00:05<00:03,  1.91it/s]Loading checkpoint shards:  65%|██████▍   | 11/17 [00:06<00:03,  1.83it/s]Loading checkpoint shards:  71%|███████   | 12/17 [00:06<00:02,  1.90it/s]Loading checkpoint shards:  76%|███████▋  | 13/17 [00:07<00:02,  1.90it/s]Loading checkpoint shards:  82%|████████▏ | 14/17 [00:07<00:01,  1.88it/s]Loading checkpoint shards:  88%|████████▊ | 15/17 [00:08<00:01,  1.91it/s]Loading checkpoint shards:  94%|█████████▍| 16/17 [00:08<00:00,  1.88it/s]Loading checkpoint shards: 100%|██████████| 17/17 [00:09<00:00,  2.06it/s]Loading checkpoint shards: 100%|██████████| 17/17 [00:09<00:00,  1.85it/s]
+PASSED
+scripts/v6_replay/test_phase1_moe.py::test_worker_emits_expert_routing_greedy PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-001] Unrecognized keys in `rope_scaling` for 'rope_type'='longrope': {'long_mscale', 'short_mscale'}
+Loading checkpoint shards:   0%|          | 0/17 [00:00<?, ?it/s]Loading checkpoint shards:  94%|█████████▍| 16/17 [00:00<00:00, 150.92it/s]Loading checkpoint shards: 100%|██████████| 17/17 [00:00<00:00, 152.39it/s]
+PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_chacha20_actually_diverges_from_argmax FAILED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-004] PASSED
+
+=================================== FAILURES ===================================
+_________________ test_chacha20_actually_diverges_from_argmax __________________
+scripts/v6_replay/test_phase1_moe.py:306: in test_chacha20_actually_diverges_from_argmax
+    assert diverged, (
+E   AssertionError: ChaCha20 sampling produced the same tokens as argmax across all 4 tasks — sampling path is not actually exercised. Confirm temperature=0.7 reaches the sampler and ChaCha20 stream is seeded.
+E   assert False
+=========================== short test summary info ============================
+FAILED scripts/v6_replay/test_phase1_moe.py::test_chacha20_actually_diverges_from_argmax
+=================== 1 failed, 22 passed in 258.83s (0:04:18) ===================

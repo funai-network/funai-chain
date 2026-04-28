@@ -1,0 +1,38 @@
+=== GPU ===
+name, memory.total [MiB], driver_version, compute_cap
+NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 580.126.16, 12.0
+
+=== CUDA / Python ===
+/usr/local/lib/python3.12/dist-packages/awq/__init__.py:21: DeprecationWarning: 
+I have left this message as the final dev message to help you transition.
+
+Important Notice:
+- AutoAWQ is officially deprecated and will no longer be maintained.
+- The last tested configuration used Torch 2.6.0 and Transformers 4.51.3.
+- If future versions of Transformers break AutoAWQ compatibility, please report the issue to the Transformers project.
+
+Alternative:
+- AutoAWQ has been adopted by the vLLM Project: https://github.com/vllm-project/llm-compressor
+
+For further inquiries, feel free to reach out:
+- X: https://x.com/casper_hansen_
+- LinkedIn: https://www.linkedin.com/in/casper-hansen-804005170/
+
+  warnings.warn(_FINAL_DEV_MESSAGE, category=DeprecationWarning, stacklevel=1)
+python=3.12.3
+torch=2.8.0+cu128
+cuda=12.8
+transformers=4.51.3
+autoawq=0.2.9
+numpy=1.26.4
+
+=== Disk ===
+mfs#us-ne-1.runpod.net:9421  685T  241T  445T  36% /workspace
+137M	/workspace/hf-cache/xet
+27G	/workspace/hf-cache/models--Qwen--Qwen1.5-MoE-A2.7B
+79G	/workspace/hf-cache/hub
+
+=== Repo HEAD ===
+495c05a research(v6): sequentialize Worker→Replayer GPU memory in MoE tests
+b26b110 research(v6): MoE Phase 1c true dynamic batch + ChaCha20 + AWQ load path
+0d8b8d8 Merge pull request #30 from funai-network/research/v6-replay-poc-moe-expert-logging

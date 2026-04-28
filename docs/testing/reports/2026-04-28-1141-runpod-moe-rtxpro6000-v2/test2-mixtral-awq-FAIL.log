@@ -1,0 +1,1605 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/funai-chain
+plugins: anyio-4.11.0
+collecting ... collected 23 items
+
+scripts/v6_replay/test_phase1_moe.py::test_schedule_is_truly_dynamic Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:04<00:08,  4.38s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:05<00:02,  2.73s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:08<00:00,  2.83s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:08<00:00,  2.97s/it]
+Some weights of the model checkpoint at TheBloke/Mixtral-8x7B-Instruct-v0.1-AWQ were not used when initializing MixtralForCausalLM: ['lm_head.weight']
+- This IS expected if you are initializing MixtralForCausalLM from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing MixtralForCausalLM from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+Some weights of MixtralForCausalLM were not initialized from the model checkpoint at TheBloke/Mixtral-8x7B-Instruct-v0.1-AWQ and are newly initialized: ['lm_head.qweight', 'lm_head.qzeros', 'lm_head.scales']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+ERROR
+scripts/v6_replay/test_phase1_moe.py::test_worker_emits_expert_routing_greedy ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-001] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-002] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-003] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-004] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-001] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-002] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-003] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-004] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_chacha20_actually_diverges_from_argmax ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-001] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-002] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-003] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-004] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-001] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-002] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-003] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-004] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-001] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-002] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-003] ERROR
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-004] ERROR
+
+==================================== ERRORS ====================================
+_______________ ERROR at setup of test_schedule_is_truly_dynamic _______________
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+__________ ERROR at setup of test_worker_emits_expert_routing_greedy ___________
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_greedy[task-moe-001] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_greedy[task-moe-002] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_greedy[task-moe-003] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_greedy[task-moe-004] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_greedy[task-moe-001] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_greedy[task-moe-002] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_greedy[task-moe-003] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_greedy[task-moe-004] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+________ ERROR at setup of test_chacha20_actually_diverges_from_argmax _________
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_chacha[task-moe-001] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_chacha[task-moe-002] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_chacha[task-moe-003] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+___ ERROR at setup of test_replay_logits_bit_exact_moe_chacha[task-moe-004] ____
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-001] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-002] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-003] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-004] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_chacha[task-moe-001] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_chacha[task-moe-002] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_chacha[task-moe-003] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+_ ERROR at setup of test_replay_expert_routing_bit_exact_moe_chacha[task-moe-004] _
+scripts/v6_replay/test_phase1_moe.py:143: in worker_runs
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py:120: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/v6_replay/worker_simulator.py:297: in run_batch_dynamic
+    out = self.model(**forward_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/generic.py:965: in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/utils/deprecation.py:172: in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/transformers/models/mixtral/modeling_mixtral.py:1047: in forward
+    logits = self.lm_head(hidden_states[:, slice_indices, :])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1773: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1784: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:273: in forward
+    out = WQLinearMMFunction.apply(
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:576: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/awq/modules/linear/gemm.py:67: in forward
+    out = awq_gemm_triton(
+/usr/local/lib/python3.12/dist-packages/awq/modules/triton/gemm.py:343: in awq_gemm_triton
+    awq_gemm_kernel[grid](
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:390: in <lambda>
+    return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/runtime/jit.py:594: in run
+    kernel = self.compile(src, target=target, options=options.__dict__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:339: in compile
+    module = src.make_ir(options, codegen_fns, module_map, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/triton/compiler/compiler.py:83: in make_ir
+    return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+E   triton.compiler.errors.CompilationError: at 102:13:
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.interleave(zeros, zeros)
+E           zeros = tl.broadcast_to(zeros, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           offsets_s = N * offsets_szk[:, None] + offsets_sn[None, :]
+E           masks_sk = offsets_szk < K // group_size
+E           masks_s = masks_sk[:, None] & masks_sn[None, :]
+E           scales_ptrs = scales_ptr + offsets_s
+E           scales = tl.load(scales_ptrs, mask=masks_s)
+E           scales = tl.broadcast_to(scales, (BLOCK_SIZE_K, BLOCK_SIZE_N))
+E   
+E           b = (b >> shifts) & 0xF
+E                ^
+E   IncompatibleTypeErrorImpl('invalid operands of type triton.language.float16 and triton.language.float16')
+=============================== warnings summary ===============================
+../../usr/local/lib/python3.12/dist-packages/transformers/utils/hub.py:105
+  /usr/local/lib/python3.12/dist-packages/transformers/utils/hub.py:105: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+    warnings.warn(
+
+scripts/v6_replay/test_phase1_moe.py::test_schedule_is_truly_dynamic
+  /usr/local/lib/python3.12/dist-packages/awq/__init__.py:21: DeprecationWarning: 
+  I have left this message as the final dev message to help you transition.
+  
+  Important Notice:
+  - AutoAWQ is officially deprecated and will no longer be maintained.
+  - The last tested configuration used Torch 2.6.0 and Transformers 4.51.3.
+  - If future versions of Transformers break AutoAWQ compatibility, please report the issue to the Transformers project.
+  
+  Alternative:
+  - AutoAWQ has been adopted by the vLLM Project: https://github.com/vllm-project/llm-compressor
+  
+  For further inquiries, feel free to reach out:
+  - X: https://x.com/casper_hansen_
+  - LinkedIn: https://www.linkedin.com/in/casper-hansen-804005170/
+  
+    warnings.warn(_FINAL_DEV_MESSAGE, category=DeprecationWarning, stacklevel=1)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR scripts/v6_replay/test_phase1_moe.py::test_schedule_is_truly_dynamic - ...
+ERROR scripts/v6_replay/test_phase1_moe.py::test_worker_emits_expert_routing_greedy
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-001]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-002]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-003]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-004]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-001]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-002]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-003]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-004]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_chacha20_actually_diverges_from_argmax
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-001]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-002]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-003]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-004]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-001]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-002]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-003]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-004]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-001]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-002]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-003]
+ERROR scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-004]
+======================= 2 warnings, 23 errors in 15.59s ========================
