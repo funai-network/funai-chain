@@ -1,0 +1,42 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /usr/local/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/funai-chain
+plugins: anyio-4.11.0
+collecting ... collected 23 items
+
+scripts/v6_replay/test_phase1_moe.py::test_schedule_is_truly_dynamic `torch_dtype` is deprecated! Use `dtype` instead!
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files:  12%|█▎        | 1/8 [01:45<12:16, 105.20s/it]Fetching 8 files:  25%|██▌       | 2/8 [01:46<04:23, 43.88s/it] Fetching 8 files: 100%|██████████| 8/8 [01:46<00:00, 13.28s/it]
+Loading checkpoint shards:   0%|          | 0/8 [00:00<?, ?it/s]Loading checkpoint shards:  38%|███▊      | 3/8 [00:00<00:00, 25.95it/s]Loading checkpoint shards:  75%|███████▌  | 6/8 [00:00<00:00, 26.54it/s]Loading checkpoint shards: 100%|██████████| 8/8 [00:00<00:00, 29.44it/s]
+PASSED
+scripts/v6_replay/test_phase1_moe.py::test_worker_emits_expert_routing_greedy PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-001] Loading checkpoint shards:   0%|          | 0/8 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 4/8 [00:00<00:00, 38.04it/s]Loading checkpoint shards: 100%|██████████| 8/8 [00:00<00:00, 41.59it/s]
+PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_greedy[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_greedy[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_chacha20_actually_diverges_from_argmax PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_logits_bit_exact_moe_chacha[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_sampled_tokens_bit_exact_moe_chacha[task-moe-004] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-001] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-002] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-003] PASSED
+scripts/v6_replay/test_phase1_moe.py::test_replay_expert_routing_bit_exact_moe_chacha[task-moe-004] PASSED
+
+=============================== warnings summary ===============================
+../../usr/local/lib/python3.12/dist-packages/transformers/utils/hub.py:110
+  /usr/local/lib/python3.12/dist-packages/transformers/utils/hub.py:110: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 23 passed, 1 warning in 309.63s (0:05:09) ===================
