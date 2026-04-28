@@ -53,6 +53,18 @@ def configure_determinism(seed: int) -> None:
     np.random.seed(seed)
 
 
+def is_awq_model_id(model_id: str) -> bool:
+    """Heuristic: AWQ-quantized model repos contain 'awq' in the name.
+
+    A more robust check would download `config.json` and inspect
+    `quantization_config.quant_method`, but that adds an extra HF
+    round-trip on every load. The naming convention is enforced by
+    convention in the AutoAWQ ecosystem (e.g. `TheBloke/Mixtral-8x7B-
+    Instruct-v0.1-AWQ`), so the heuristic is safe in practice.
+    """
+    return "awq" in model_id.lower()
+
+
 def load_model_and_tokenizer(model_id: str, device: str):
     """
     Load model in bfloat16 eager-attention eval mode; tokenizer with left padding.
@@ -70,17 +82,44 @@ def load_model_and_tokenizer(model_id: str, device: str):
         Disables SDPA fused backends, which on some hardware pick
         non-deterministic kernels depending on batch size. Slower than
         SDPA but the determinism floor for Phase 1a.
+
+    AWQ-quantized models (model_id contains 'awq'):
+        Loaded without an explicit `torch_dtype` (the AWQ kernel brings
+        its own quantized dtype + dequant path) and with
+        `device_map=device` (AutoAWQ + transformers require an explicit
+        device map; calling `.to(device)` post-load fails on quantized
+        weights). Requires the `autoawq` package in the runtime
+        environment; install with `pip install autoawq`.
+
+        Determinism caveat: the AWQ dequant kernel is **not** registered
+        with `torch.use_deterministic_algorithms(True)`, so the Worker
+        may need to call `configure_determinism` with `warn_only=True`
+        for AWQ runs. The Phase 1 invariant (`max_abs_err == 0.0`) is
+        what actually decides whether AWQ + V6 batch-replay is bit-exact
+        — the determinism flag is a tripwire, not a proof.
     """
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="eager",
-    ).to(device)
+    if is_awq_model_id(model_id):
+        # AWQ path: do NOT pass `torch_dtype`; let transformers honour
+        # the model's quantization_config. `device_map=device` pins the
+        # model to a single GPU; calling `.to(device)` post-load fails
+        # on quantized weights.
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map=device,
+            attn_implementation="eager",
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="eager",
+        ).to(device)
+
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)

@@ -8,3 +8,9 @@ numpy>=1.24,<2
 pytest>=7
 # ChaCha20 for Phase 1b deterministic sampling (V5.2 §9.3).
 cryptography>=42
+# Optional: required only when V6_MODEL points at an AWQ-quantized
+# checkpoint (test_phase1_moe.py with Mixtral-8x7B-AWQ etc.). Leave
+# uninstalled when only running bf16 dense / MoE — autoawq pulls in
+# CUDA-specific kernels that are not needed for the default path.
+# Install separately:
+#   pip install autoawq
