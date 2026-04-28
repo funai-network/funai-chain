@@ -38,6 +38,18 @@ test:
 test-stress:
 	$(GO) test ./... -race -timeout 60m
 
+# test-byzantine-quick: 100 rounds per scenario across all 29 KT V6
+# Byzantine scenarios. Wired for every PR — completes in ~10 s and gates
+# any code change touching jail / slash / reputation / state machine.
+# See docs/testing/FunAI_V6_Byzantine_Test_Plan_KT.md.
+test-byzantine-quick:
+	$(GO) test ./tests/byzantine/... -v -run TestByzantineQuick -timeout 5m
+
+# test-byzantine-full: 10 000 rounds per scenario via the byzantine_full
+# build tag. Nightly run. Budget ~15 min.
+test-byzantine-full:
+	$(GO) test -tags byzantine_full ./tests/byzantine/... -v -run TestByzantineFull -timeout 30m
+
 bench:
 	$(GO) test ./bench/... -bench=. -benchtime=10s -benchmem -run=^$
 
