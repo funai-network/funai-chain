@@ -60,10 +60,16 @@ which is what the keeper actually does (see VRF unified formula in
 
 ### 3.1 Cost is independent of batch size N (the non-obvious result)
 
-The plan's "tens-of-times single-task inference" cost amplification
-factor is REAL on a per-batch basis (the verifier replays N tasks of
-compute to verify whatever subset of those N they were assigned), but
-the per-task cost CANCELS the N out under uniform VRF dispatch:
+V6 design ([`docs/protocol/FunAI_V6_Batch_Replay_Verification_KT.md`](../protocol/FunAI_V6_Batch_Replay_Verification_KT.md) §3.4) **mandates full-batch replay**:
+
+> "The Verifier must replay the Worker's entire batch at once — batches cannot
+> be split for verification. When selecting Verifiers via VRF, only consider
+> nodes whose VRAM is large enough to hold the batch."
+
+So the cost-amplification framing in the V6 PoC SUMMARY's open question is
+real per BATCH (the verifier replays N tasks of compute regardless of how many
+of those N they are assigned to verify). But the per-task cost CANCELS the N
+out under uniform VRF dispatch:
 
 ```
 expected_tasks_per_batch_per_verifier = N × 3 / M
@@ -86,6 +92,35 @@ revenue does not change.
 
 This was confirmed by Scenario B in the simulator (varying N from 1
 to 32 at fixed M = 10): all four rows produce identical margin.
+
+#### 3.1.1 Refinement: VRAM filtering pushes M down at large N
+
+The V6 design's "only consider nodes whose VRAM is large enough to hold
+the batch" rule means **M is not a single constant per model — it
+depends on N**. Concretely:
+
+- A worker batched at N=8 on a 7B model needs ~14 GB activation memory →
+  any 24 GB+ verifier qualifies → large eligible M.
+- A worker batched at N=32 on the same model needs ~56 GB →
+  only A100 80 GB / H100-class verifiers qualify → eligible M shrinks.
+
+Since the per-task cost formula is `M × T × $/hr / 10800`, a smaller
+eligible M means **lower per-task cost for the verifiers who DO
+qualify**. Counter-intuitively, larger worker batches IMPROVE
+per-verified-task economics for the eligible subset, even though they
+push more would-be verifiers out of the pool.
+
+System-level interpretation: larger N → fewer participants but each
+earns more. Smaller N → more participants but each earns less. The
+chain currently has no direct lever to balance these (the worker picks
+N based on its own throughput needs); the V6 design notes that
+**workers can voluntarily lower batch_capacity to widen the verifier
+pool** — i.e. trade their own throughput for verification
+decentralisation. This is a per-model game-theoretic decision the
+operator should be aware of when setting `batch_capacity`.
+
+The simulator's M sweep (Scenario A) implicitly covers this — pick the
+M corresponding to the VRAM-eligible subset for your N.
 
 ### 3.2 Pool size M is the dominant cost driver
 
