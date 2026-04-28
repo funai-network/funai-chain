@@ -68,10 +68,12 @@ suite unaffected.
 
 from __future__ import annotations
 
+import gc
 import os
 
 import numpy as np
 import pytest
+import torch
 
 from ._common import is_moe_model
 from .replay_engine import ReplayEngine
@@ -117,10 +119,18 @@ def _resolve_skip_reason() -> str | None:
     return None
 
 
-# Worker is loaded once for the whole module; both sampling fixtures
-# reuse it to keep VRAM footprint low (one model copy, not two).
+# Memory layout strategy
+# ----------------------
+# `worker_runs` loads a Worker, executes BOTH sampling configs against it,
+# then explicitly releases the Worker's GPU memory before returning. The
+# `replay_engine` fixture is module-scoped and depends on `worker_runs`, so
+# pytest is forced to evaluate `worker_runs` (which frees Worker) before
+# instantiating Replayer. Net: only one model copy is resident on the GPU
+# at a time. This is what makes Phi-3.5-MoE (~84 GB bf16) testable on a
+# single RTX PRO 6000 96GB — Worker + Replayer concurrent would peak near
+# 168 GB and OOM.
 @pytest.fixture(scope="module")
-def worker():
+def worker_runs():
     reason = _resolve_skip_reason()
     if reason:
         pytest.skip(reason)
@@ -130,24 +140,49 @@ def worker():
             f"V6_MODEL={MODEL!r} loaded but is not Mixture-of-Experts; "
             f"this test is MoE-specific. For dense models use test_phase1.py."
         )
-    return w
+    greedy = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+    chacha = w.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_CHACHA)
+
+    # Drop Worker before Replayer loads. The data we returned is already
+    # on the CPU (numpy arrays + Python ints), so the model's weights and
+    # any cached activations can go.
+    del w
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    return greedy, chacha
 
 
 @pytest.fixture(scope="module")
-def moe_run_greedy(worker):
+def moe_run_greedy(worker_runs):
     """Worker output for the greedy (temperature=0) configuration."""
-    return worker.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_GREEDY)
+    return worker_runs[0]
 
 
 @pytest.fixture(scope="module")
-def moe_run_chacha(worker):
+def moe_run_chacha(worker_runs):
     """Worker output for the ChaCha20-sampled (temperature=0.7) configuration.
 
     This path covers V5.2 §9.3 ChaCha20-seeded sampling on MoE — the
     actual Companion-default sampling on the actual MoE production
     architecture. Was not validated by the 2026-04-27 RunPod report.
     """
-    return worker.run_batch_dynamic(PROMPTS, DYNAMIC_SCHEDULE, **SAMPLING_CHACHA)
+    return worker_runs[1]
+
+
+@pytest.fixture(scope="module")
+def replay_engine(worker_runs):
+    """Replayer instance, loaded *after* `worker_runs` has freed the
+    Worker's GPU memory. Module-scoped so all parametrized replay tests
+    share one ReplayEngine instead of reloading a multi-GB model per test.
+    """
+    # The dependency on `worker_runs` is what enforces lifecycle ordering —
+    # pytest must produce `worker_runs` first, and that fixture body
+    # releases Worker before returning. Keep the parameter name even
+    # though the value isn't used directly.
+    _ = worker_runs
+    return ReplayEngine(MODEL, DEVICE)
 
 
 def _is_truly_dynamic(batch_log) -> bool:
@@ -199,11 +234,10 @@ def test_worker_emits_expert_routing_greedy(moe_run_greedy):
 
 
 @pytest.mark.parametrize("target", list(PROMPTS))
-def test_replay_logits_bit_exact_moe_greedy(moe_run_greedy, target):
+def test_replay_logits_bit_exact_moe_greedy(moe_run_greedy, replay_engine, target):
     """Phase 1c logits assertion under greedy decoding. PASS = max_abs_err 0.0."""
     _, log, worker_logits = moe_run_greedy
-    r = ReplayEngine(MODEL, DEVICE)
-    replayed = r.replay_dynamic(log, target_task_id=target)
+    replayed = replay_engine.replay_dynamic(log, target_task_id=target)
 
     w = worker_logits[target].logits
     rp = replayed.logits
@@ -221,11 +255,10 @@ def test_replay_logits_bit_exact_moe_greedy(moe_run_greedy, target):
 
 
 @pytest.mark.parametrize("target", list(PROMPTS))
-def test_replay_expert_routing_bit_exact_moe_greedy(moe_run_greedy, target):
+def test_replay_expert_routing_bit_exact_moe_greedy(moe_run_greedy, replay_engine, target):
     """Phase 1c expert-routing assertion under greedy decoding."""
     _, log, worker_logits = moe_run_greedy
-    r = ReplayEngine(MODEL, DEVICE)
-    replayed = r.replay_dynamic(log, target_task_id=target)
+    replayed = replay_engine.replay_dynamic(log, target_task_id=target)
 
     w_routing = worker_logits[target].expert_routing
     r_routing = replayed.expert_routing
@@ -278,11 +311,10 @@ def test_chacha20_actually_diverges_from_argmax(moe_run_greedy, moe_run_chacha):
 
 
 @pytest.mark.parametrize("target", list(PROMPTS))
-def test_replay_logits_bit_exact_moe_chacha(moe_run_chacha, target):
+def test_replay_logits_bit_exact_moe_chacha(moe_run_chacha, replay_engine, target):
     """Phase 1b ⊗ 1c logits assertion under ChaCha20 sampling."""
     _, log, worker_logits = moe_run_chacha
-    r = ReplayEngine(MODEL, DEVICE)
-    replayed = r.replay_dynamic(log, target_task_id=target)
+    replayed = replay_engine.replay_dynamic(log, target_task_id=target)
 
     w = worker_logits[target].logits
     rp = replayed.logits
@@ -298,13 +330,12 @@ def test_replay_logits_bit_exact_moe_chacha(moe_run_chacha, target):
 
 
 @pytest.mark.parametrize("target", list(PROMPTS))
-def test_replay_sampled_tokens_bit_exact_moe_chacha(moe_run_chacha, target):
+def test_replay_sampled_tokens_bit_exact_moe_chacha(moe_run_chacha, replay_engine, target):
     """Phase 1b ⊗ 1c sampled-token assertion. The ChaCha20 stream + same
     logits should produce the same sampled token; if not, the sampler
     itself is non-deterministic on Replayer."""
     _, log, worker_logits = moe_run_chacha
-    r = ReplayEngine(MODEL, DEVICE)
-    replayed = r.replay_dynamic(log, target_task_id=target)
+    replayed = replay_engine.replay_dynamic(log, target_task_id=target)
 
     w_tok = worker_logits[target].sampled_tokens
     r_tok = replayed.sampled_tokens
@@ -315,7 +346,7 @@ def test_replay_sampled_tokens_bit_exact_moe_chacha(moe_run_chacha, target):
 
 
 @pytest.mark.parametrize("target", list(PROMPTS))
-def test_replay_expert_routing_bit_exact_moe_chacha(moe_run_chacha, target):
+def test_replay_expert_routing_bit_exact_moe_chacha(moe_run_chacha, replay_engine, target):
     """Phase 1b ⊗ 1c expert-routing assertion under ChaCha20 sampling.
 
     Routing is determined by the model's gating network on the prompt +
@@ -325,8 +356,7 @@ def test_replay_expert_routing_bit_exact_moe_chacha(moe_run_chacha, target):
     sampling exposes a routing non-determinism not seen in greedy mode.
     """
     _, log, worker_logits = moe_run_chacha
-    r = ReplayEngine(MODEL, DEVICE)
-    replayed = r.replay_dynamic(log, target_task_id=target)
+    replayed = replay_engine.replay_dynamic(log, target_task_id=target)
 
     w_routing = worker_logits[target].expert_routing
     r_routing = replayed.expert_routing
