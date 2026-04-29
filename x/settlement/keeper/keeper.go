@@ -999,12 +999,28 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 				entry.MaxFee.Amount.Uint64(),
 			)
 			actualFee = sdk.NewCoin(types.DefaultDenom, math.NewIntFromUint64(computedFee))
-
-			_, _ = k.UnfreezeBalance(ctx, userAddr, entry.TaskId)
 		} else {
 			// Per-request billing: use fixed fee
 			actualFee = entry.Fee
 		}
+
+		// KT 30-case Issue 1: release any chain-side reservation for this
+		// task, regardless of billing mode. UnfreezeBalance is idempotent —
+		// no-op when no FrozenBalanceKey exists for the task. Per-token
+		// freezes were created at MsgRequestQuote; per-request freezes were
+		// created at MsgBatchReserve (the new accept-time reservation path).
+		// Calling unconditionally here means the per-request reservation is
+		// returned to AvailableBalance before the fee charge below — so a
+		// settle that exactly equals the reservation always succeeds.
+		//
+		// Refresh ia after the unfreeze: UnfreezeBalance writes a new
+		// FrozenBalance to the on-chain InferenceAccount, so the local ia
+		// captured earlier in this iteration is stale on FrozenBalance.
+		// Without re-reading, the SetInferenceAccount calls below would
+		// overwrite the unfreeze with the stale FrozenBalance — a pre-
+		// existing latent bug in the per-token settle path.
+		_, _ = k.UnfreezeBalance(ctx, userAddr, entry.TaskId)
+		ia, _ = k.GetInferenceAccount(ctx, userAddr)
 
 		if entry.Status == types.SettlementSuccess {
 			if ia.Balance.IsLT(actualFee) {
@@ -1047,8 +1063,9 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 			totalFees = totalFees.Add(actualFee.Amount)
 		} else {
 			if entry.IsPerToken() {
-				// S9 §4.3: FAIL + per-token — charge fail_fee, refund rest
-				_, _ = k.UnfreezeBalance(ctx, userAddr, entry.TaskId)
+				// S9 §4.3: FAIL + per-token — charge fail_fee, refund rest.
+				// Reservation already released by the unconditional UnfreezeBalance
+				// above — no per-billing-mode unfreeze needed here.
 
 				failFee := actualFee.Amount.MulRaw(int64(params.FailSettlementFeeRatio)).QuoRaw(1000)
 				failCoin := sdk.NewCoin(types.DefaultDenom, failFee)
@@ -1716,11 +1733,19 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 		verifiers = append(verifiers, types.VerifierResult{Address: addr})
 	}
 
+	// KT 30-case Issue 1: release any chain-side reservation regardless of
+	// billing mode. UnfreezeBalance is idempotent — no-op when nothing is
+	// frozen for this task. Symmetric with ProcessBatchSettlement's
+	// unconditional unfreeze; both per-token (MsgRequestQuote) and
+	// per-request (MsgBatchReserve) freezes are released here.
+	// Refresh ia after the unfreeze (see ProcessBatchSettlement comment for
+	// the reasoning — stale FrozenBalance otherwise overwrites the unfreeze).
+	_, _ = k.UnfreezeBalance(ctx, userAddr, apt.TaskId)
+	ia, _ = k.GetInferenceAccount(ctx, userAddr)
+
 	// S9: determine base fee for settlement
 	baseFee := apt.Fee
 	if apt.FeePerInputToken > 0 || apt.FeePerOutputToken > 0 {
-		_, _ = k.UnfreezeBalance(ctx, userAddr, apt.TaskId)
-
 		outTokens := apt.SettledOutputTokens
 		if overrideOutputTokens > 0 {
 			outTokens = overrideOutputTokens
@@ -2103,7 +2128,17 @@ func (k Keeper) shouldTriggerThirdVerification(ctx sdk.Context, taskId []byte, t
 // verifyProposerSignature verifies the Proposer's secp256k1 signature on the merkle root.
 // P0-2/P1-5: §10.5 — "Proposer signature valid" is the first batch validation step.
 func (k Keeper) verifyProposerSignature(ctx sdk.Context, msg *types.MsgBatchSettlement) error {
-	if len(msg.ProposerSig) == 0 {
+	return k.verifyProposerSigOnRoot(ctx, msg.Proposer, msg.MerkleRoot, msg.ProposerSig)
+}
+
+// verifyProposerSigOnRoot is the shared signature-check helper used by both
+// MsgBatchSettlement and MsgBatchReserve. Both messages carry the same
+// (proposer, merkle_root, proposer_sig) triple and demand the identical
+// "proposer must be a registered worker AND signed the SHA256 of the root"
+// invariant. Factoring this lets BatchReserve reuse the exact same security
+// posture as BatchSettlement without copy-pasting the secp256k1 logic.
+func (k Keeper) verifyProposerSigOnRoot(ctx sdk.Context, proposerStr string, merkleRoot, sig []byte) error {
+	if len(sig) == 0 {
 		return fmt.Errorf("missing proposer signature")
 	}
 
@@ -2111,7 +2146,7 @@ func (k Keeper) verifyProposerSignature(ctx sdk.Context, msg *types.MsgBatchSett
 		return nil // skip verification if no worker keeper
 	}
 
-	proposerAddr, err := sdk.AccAddressFromBech32(msg.Proposer)
+	proposerAddr, err := sdk.AccAddressFromBech32(proposerStr)
 	if err != nil {
 		return fmt.Errorf("invalid proposer address: %w", err)
 	}
@@ -2119,22 +2154,122 @@ func (k Keeper) verifyProposerSignature(ctx sdk.Context, msg *types.MsgBatchSett
 	pubkeyStr, found := k.workerKeeper.GetWorkerPubkey(ctx, proposerAddr)
 	if !found || len(pubkeyStr) == 0 {
 		// P1-6 fix: pubkey not found must be an error. Allowing bypass lets an unregistered
-		// address submit BatchSettlement without signature verification.
-		return fmt.Errorf("proposer pubkey not found: %s is not a registered worker", msg.Proposer)
+		// address submit BatchSettlement / BatchReserve without signature verification.
+		return fmt.Errorf("proposer pubkey not found: %s is not a registered worker", proposerStr)
 	}
 
 	pubkeyBytes, err := hex.DecodeString(pubkeyStr)
 	if err != nil {
 		pubkeyBytes = []byte(pubkeyStr)
 	}
-	msgHash := sha256.Sum256(msg.MerkleRoot)
+	msgHash := sha256.Sum256(merkleRoot)
 
 	var pubKey secp256k1.PubKey = pubkeyBytes
-	if !pubKey.VerifySignature(msgHash[:], msg.ProposerSig) {
+	if !pubKey.VerifySignature(msgHash[:], sig) {
 		return fmt.Errorf("proposer signature verification failed")
 	}
 
 	return nil
+}
+
+// ProcessBatchReserve handles MsgBatchReserve — the per-request accept-time
+// chain-side reservation message. Closes KT 30-case Issue 1.
+//
+// Tx-level error returns reject the whole batch (proposer signature mismatch
+// or merkle root mismatch). Per-row failures (bad address, missing account,
+// past expiry, duplicate, denom mismatch, insufficient available balance)
+// are silently skipped and counted in rejected — analogous to per-entry
+// silent skip in ProcessBatchSettlement.
+//
+// The reservation is created via FreezeBalance keyed by TaskId; the freeze
+// is automatically released by ProcessBatchSettlement / settleAuditedTask
+// (both unconditional UnfreezeBalance) at settle time, or by
+// HandleFrozenBalanceTimeouts on expire_block.
+func (k Keeper) ProcessBatchReserve(ctx sdk.Context, msg *types.MsgBatchReserve) (uint32, uint32, error) {
+	if err := k.verifyProposerSigOnRoot(ctx, msg.Proposer, msg.MerkleRoot, msg.ProposerSig); err != nil {
+		return 0, 0, sdkerrors.Wrap(types.ErrInvalidSettlement, "proposer signature verification failed")
+	}
+
+	if !VerifyReserveMerkleRoot(msg.MerkleRoot, msg.Entries) {
+		// Mirror BatchSettlement: jail proposer on merkle mismatch.
+		if k.workerKeeper != nil {
+			proposerAddr, _ := sdk.AccAddressFromBech32(msg.Proposer)
+			k.workerKeeper.JailWorker(ctx, proposerAddr, 0)
+		}
+		return 0, 0, sdkerrors.Wrap(types.ErrInvalidSettlement, "reserve merkle root verification failed, proposer jailed")
+	}
+
+	if msg.ResultCount != uint32(len(msg.Entries)) {
+		if k.workerKeeper != nil {
+			proposerAddr, _ := sdk.AccAddressFromBech32(msg.Proposer)
+			k.workerKeeper.JailWorker(ctx, proposerAddr, 0)
+		}
+		return 0, 0, sdkerrors.Wrapf(types.ErrInvalidSettlement, "reserve result_count mismatch: declared %d, actual %d, proposer jailed", msg.ResultCount, len(msg.Entries))
+	}
+
+	currentHeight := ctx.BlockHeight()
+	store := ctx.KVStore(k.storeKey)
+	var accepted, rejected uint32
+
+	for _, entry := range msg.Entries {
+		// Denom + value validity.
+		if !entry.MaxFee.IsValid() || entry.MaxFee.IsZero() {
+			rejected++
+			continue
+		}
+		if entry.MaxFee.Denom != types.DefaultDenom {
+			rejected++
+			continue
+		}
+
+		// TaskId must be non-empty.
+		if len(entry.TaskId) == 0 {
+			rejected++
+			continue
+		}
+
+		// Past-expiry tasks: don't reserve, the dispatch is dead anyway.
+		if entry.ExpireBlock > 0 && entry.ExpireBlock < currentHeight {
+			rejected++
+			continue
+		}
+
+		// Already-settled tasks: dispatch is done, no point reserving.
+		if _, found := k.GetSettledTask(ctx, entry.TaskId); found {
+			rejected++
+			continue
+		}
+
+		// Already-reserved tasks: idempotent — count as rejected so callers see
+		// the no-op, but do not error the batch.
+		if store.Has(types.FrozenBalanceKey(entry.TaskId)) {
+			rejected++
+			continue
+		}
+
+		// User address parse + account exist.
+		userAddr, err := sdk.AccAddressFromBech32(entry.UserAddress)
+		if err != nil {
+			rejected++
+			continue
+		}
+		if _, found := k.GetInferenceAccount(ctx, userAddr); !found {
+			rejected++
+			continue
+		}
+
+		// Attempt freeze. FreezeBalance fails on insufficient available
+		// balance — silent rejection is correct: the user has overcommitted
+		// across multiple Leaders' dispatches and this task simply cannot be
+		// reserved now.
+		if err := k.FreezeBalance(ctx, userAddr, entry.TaskId, entry.MaxFee); err != nil {
+			rejected++
+			continue
+		}
+		accepted++
+	}
+
+	return accepted, rejected, nil
 }
 
 // -------- S9: Frozen Balance CRUD --------

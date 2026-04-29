@@ -84,6 +84,30 @@ func (m msgServer) BatchSettle(goCtx context.Context, msg *types.MsgBatchSettlem
 	return &types.MsgBatchSettlementResponse{BatchId: batchId}, nil
 }
 
+// BatchReserve handles the per-request accept-time reservation message.
+// Closes KT 30-case Issue 1 — without it, a user could withdraw between
+// dispatch and settlement, leaving a Worker unpaid for already-completed
+// inference. Per-token billing already had this via FreezeBalance/
+// UnfreezeBalance triggered by MsgRequestQuote; BatchReserve is the
+// equivalent entry point for per-request billing.
+func (m msgServer) BatchReserve(goCtx context.Context, msg *types.MsgBatchReserve) (*types.MsgBatchReserveResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	accepted, rejected, err := m.ProcessBatchReserve(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventBatchReserve,
+		sdk.NewAttribute(types.AttributeKeyProposer, msg.Proposer),
+		sdk.NewAttribute(types.AttributeKeyAcceptedCount, strconv.FormatUint(uint64(accepted), 10)),
+		sdk.NewAttribute(types.AttributeKeyRejectedCount, strconv.FormatUint(uint64(rejected), 10)),
+	))
+
+	return &types.MsgBatchReserveResponse{AcceptedCount: accepted, RejectedCount: rejected}, nil
+}
+
 func (m msgServer) SubmitFraudProof(goCtx context.Context, msg *types.MsgFraudProof) (*types.MsgFraudProofResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 

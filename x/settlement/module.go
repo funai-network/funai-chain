@@ -44,6 +44,7 @@ func (AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 		&types.MsgDeposit{},
 		&types.MsgWithdraw{},
 		&types.MsgBatchSettlement{},
+		&types.MsgBatchReserve{},
 		&types.MsgFraudProof{},
 		&types.MsgSecondVerificationResult{},
 		&types.MsgSecondVerificationResultBatch{},

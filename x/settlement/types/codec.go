@@ -23,6 +23,7 @@ var _Msg_serviceDesc = grpc.ServiceDesc{
 		{MethodName: "Deposit", Handler: _Msg_Deposit_Handler},
 		{MethodName: "Withdraw", Handler: _Msg_Withdraw_Handler},
 		{MethodName: "BatchSettle", Handler: _Msg_BatchSettle_Handler},
+		{MethodName: "BatchReserve", Handler: _Msg_BatchReserve_Handler},
 		{MethodName: "SubmitFraudProof", Handler: _Msg_SubmitFraudProof_Handler},
 		{MethodName: "SubmitSecondVerificationResult", Handler: _Msg_SubmitSecondVerificationResult_Handler},
 	},
@@ -83,6 +84,21 @@ func _Msg_BatchSettle_Handler(srv interface{}, ctx context.Context, dec func(int
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/funai.settlement.Msg/BatchSettle"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).BatchSettle(ctx, req.(*MsgBatchSettlement))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_BatchReserve_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgBatchReserve)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).BatchReserve(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/funai.settlement.Msg/BatchReserve"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).BatchReserve(ctx, req.(*MsgBatchReserve))
 	}
 	return interceptor(ctx, in, info, handler)
 }
