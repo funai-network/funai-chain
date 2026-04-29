@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -729,14 +728,9 @@ func shortHex(b []byte) string {
 	return fmt.Sprintf("%x", b)
 }
 
-// decodePubkey decodes a pubkey string that may be base64 (Cosmos SDK default)
-// or hex-encoded. Returns nil if both fail.
+// decodePubkey forwards to the shared settlement-types decoder so all
+// pubkey-decode paths (settlement keeper FraudProof + Proposer sig + D2
+// verifier sig + this p2p path) share one source of truth. KT Issue 4.
 func decodePubkey(s string) []byte {
-	if b, err := base64.StdEncoding.DecodeString(s); err == nil && len(b) == 33 {
-		return b
-	}
-	if b, err := hex.DecodeString(s); err == nil && len(b) == 33 {
-		return b
-	}
-	return nil
+	return settlementtypes.DecodeWorkerPubkey(s)
 }
