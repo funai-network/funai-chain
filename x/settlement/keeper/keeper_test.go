@@ -52,6 +52,11 @@ type mockWorkerKeeper struct {
 	jailCalls   []sdk.AccAddress
 	slashCalls  []sdk.AccAddress
 	streakCalls []sdk.AccAddress
+	// PubkeyOverride lets a test inject a non-default representation of the
+	// test proposer's pubkey (hex / base64) so the signature-verify paths
+	// can be exercised against the encoding actually written by funaid CLI
+	// in production. Empty string → default raw 33 bytes.
+	PubkeyOverride string
 }
 
 func newMockWorkerKeeper() *mockWorkerKeeper {
@@ -86,6 +91,12 @@ func (m *mockWorkerKeeper) UpdateAvgLatency(_ sdk.Context, _ sdk.AccAddress, _ u
 
 func (m *mockWorkerKeeper) GetWorkerPubkey(_ sdk.Context, _ sdk.AccAddress) (string, bool) {
 	// P1-6: return the test proposer's pubkey for signature verification.
+	// KT Issue 4: if PubkeyOverride is set, return that representation
+	// (hex / base64) instead so a test can verify the keeper accepts the
+	// encoded form just like the raw form.
+	if m.PubkeyOverride != "" {
+		return m.PubkeyOverride, true
+	}
 	return string(testProposerKey.PubKey().Bytes()), true
 }
 

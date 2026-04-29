@@ -1319,12 +1319,19 @@ func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) err
 
 	// H3: verify Worker's content signature using on-chain pubkey to prevent fake FraudProof.
 	// §12.4: Worker signs hash(full_content), user cannot forge without Worker privkey.
+	// KT Issue 4: must accept all three pubkey formats (raw / hex / base64) because
+	// MsgRegisterWorker via the funaid CLI stores hex; treating that hex string as
+	// raw bytes silently broke every legitimate fraud report pre-fix.
 	if k.workerKeeper != nil && len(msg.WorkerContentSig) > 0 && len(msg.ContentHash) > 0 {
 		pubkeyStr, found := k.workerKeeper.GetWorkerPubkey(ctx, workerAddr)
 		if !found {
 			return fmt.Errorf("FraudProof: worker pubkey not found on-chain for %s", msg.WorkerAddress)
 		}
-		workerPubkey := secp256k1.PubKey([]byte(pubkeyStr))
+		pubkeyBytes := types.DecodeWorkerPubkey(pubkeyStr)
+		if pubkeyBytes == nil {
+			return fmt.Errorf("FraudProof: worker pubkey for %s is not a valid 33-byte secp256k1 key (raw/hex/base64)", msg.WorkerAddress)
+		}
+		workerPubkey := secp256k1.PubKey(pubkeyBytes)
 		if !workerPubkey.VerifySignature(msg.ContentHash, msg.WorkerContentSig) {
 			return fmt.Errorf("FraudProof: worker content signature verification failed")
 		}
@@ -2158,9 +2165,13 @@ func (k Keeper) verifyProposerSigOnRoot(ctx sdk.Context, proposerStr string, mer
 		return fmt.Errorf("proposer pubkey not found: %s is not a registered worker", proposerStr)
 	}
 
-	pubkeyBytes, err := hex.DecodeString(pubkeyStr)
-	if err != nil {
-		pubkeyBytes = []byte(pubkeyStr)
+	// KT Issue 4: route through the shared decoder so all three formats
+	// (hex, base64, raw) are accepted uniformly. Pre-fix this had a hex+raw
+	// fallback inline; base64 was not handled and would have been incorrectly
+	// re-interpreted as raw bytes.
+	pubkeyBytes := types.DecodeWorkerPubkey(pubkeyStr)
+	if pubkeyBytes == nil {
+		return fmt.Errorf("proposer pubkey for %s is not a valid 33-byte secp256k1 key (raw/hex/base64)", proposerStr)
 	}
 	msgHash := sha256.Sum256(merkleRoot)
 
@@ -2723,11 +2734,19 @@ func (k Keeper) processSecondVerificationBatchEntry(ctx sdk.Context, i int, entr
 		return false
 	}
 	pubkeyStr, found := k.workerKeeper.GetWorkerPubkey(ctx, verifierAddr)
-	if !found || len(pubkeyStr) != 33 {
+	if !found {
 		ctx.Logger().Info("reject batch entry: unknown second_verifier pubkey", "index", i, "second_verifier", entry.SecondVerifier)
 		return false
 	}
-	pubkeyBytes := []byte(pubkeyStr)
+	// KT Issue 4: pre-fix this checked `len(pubkeyStr) != 33` which only
+	// accepted the raw bytes-as-string form. With the testnet CLI storing
+	// the pubkey as 66-char hex (scripts/e2e-real-inference.sh:509), every
+	// real-world second_verifier batch entry was silently rejected here.
+	pubkeyBytes := types.DecodeWorkerPubkey(pubkeyStr)
+	if pubkeyBytes == nil {
+		ctx.Logger().Info("reject batch entry: second_verifier pubkey not a valid 33-byte secp256k1 key", "index", i, "second_verifier", entry.SecondVerifier)
+		return false
+	}
 
 	canonical := SecondVerificationEntrySigBytes(entry, pubkeyBytes)
 	msgHash := sha256.Sum256(canonical)
