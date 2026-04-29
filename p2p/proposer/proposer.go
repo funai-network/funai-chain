@@ -61,6 +61,20 @@ type Proposer struct {
 	// const if this is unset, so existing tests that touch Proposer fields
 	// directly do not need updating.
 	batchLimitOverride int
+
+	// KT Issue 10: current chain epoch, updated by the dispatch tick. When
+	// the third audit response arrives and moveAuditToReadyLocked stamps
+	// the readyAuditEntry, this value is captured so the resulting
+	// MsgSecondVerificationResultBatch entries carry the epoch in which the
+	// audit COMPLETED, not Epoch=0. The keeper's per-epoch counters are
+	// still authoritatively keyed by ctx.BlockHeight() at settle time —
+	// this field exists so audit-batch entries no longer silently ship
+	// Epoch=0 to chain logs / event consumers.
+	//
+	// SecondVerificationEntrySigBytes does NOT include Epoch in the
+	// canonical pre-image, so updating Epoch downstream of Verifier signing
+	// does not invalidate per-entry signatures.
+	currentEpoch int64
 }
 
 // MinBatchLimit is the floor that ShrinkBatchLimit will not shrink below.
@@ -678,14 +692,31 @@ func (p *Proposer) CollectSecondVerificationResponse(resp *p2ptypes.SecondVerifi
 // moveAuditToReadyLocked snapshots a completed audit into readyAudits and
 // drops it from pendingAudits so subsequent responses are ignored as dup.
 // Must be called with p.mu held.
+//
+// KT Issue 10: stamps the audit with p.currentEpoch (set by the dispatch
+// tick from chain height). Pre-fix Epoch was never populated and hit the
+// chain as 0, dropping the per-epoch dimension from all audit-batch
+// entries.
 func (p *Proposer) moveAuditToReadyLocked(key string, ev *AuditEvidence, taskId []byte) {
 	responses := make([]p2ptypes.SecondVerificationResponse, len(ev.Responses))
 	copy(responses, ev.Responses)
 	p.readyAudits = append(p.readyAudits, readyAuditEntry{
 		TaskId:    append([]byte(nil), taskId...),
+		Epoch:     p.currentEpoch,
 		Responses: responses,
 	})
 	delete(p.pendingAudits, key)
+}
+
+// SetCurrentEpoch updates Proposer's view of the current chain epoch. The
+// dispatch tick calls this before BuildAuditBatch so newly-completed audits
+// stamp with the right epoch. Concurrent-safe.
+func (p *Proposer) SetCurrentEpoch(epoch int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if epoch > p.currentEpoch {
+		p.currentEpoch = epoch
+	}
 }
 
 func (p *Proposer) countAuditPassResponses(responses []p2ptypes.SecondVerificationResponse) int {
