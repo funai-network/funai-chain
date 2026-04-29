@@ -13,6 +13,8 @@ func init() {
 	proto.RegisterType((*MsgDeposit)(nil), "funai.settlement.MsgDeposit")
 	proto.RegisterType((*MsgWithdraw)(nil), "funai.settlement.MsgWithdraw")
 	proto.RegisterType((*MsgBatchSettlement)(nil), "funai.settlement.MsgBatchSettlement")
+	proto.RegisterType((*MsgBatchReserve)(nil), "funai.settlement.MsgBatchReserve")
+	proto.RegisterType((*ReserveEntry)(nil), "funai.settlement.ReserveEntry")
 	proto.RegisterType((*MsgFraudProof)(nil), "funai.settlement.MsgFraudProof")
 	proto.RegisterType((*MsgSecondVerificationResult)(nil), "funai.settlement.MsgSecondVerificationResult")
 	proto.RegisterType((*MsgSecondVerificationResultBatch)(nil), "funai.settlement.MsgSecondVerificationResultBatch")
@@ -23,6 +25,7 @@ var (
 	_ sdk.Msg = &MsgDeposit{}
 	_ sdk.Msg = &MsgWithdraw{}
 	_ sdk.Msg = &MsgBatchSettlement{}
+	_ sdk.Msg = &MsgBatchReserve{}
 	_ sdk.Msg = &MsgFraudProof{}
 	_ sdk.Msg = &MsgSecondVerificationResult{}
 	_ sdk.Msg = &MsgSecondVerificationResultBatch{}
@@ -146,6 +149,87 @@ func (msg *MsgBatchSettlement) ValidateBasic() error {
 }
 
 func (msg *MsgBatchSettlement) GetSigners() []sdk.AccAddress {
+	proposer, _ := sdk.AccAddressFromBech32(msg.Proposer)
+	return []sdk.AccAddress{proposer}
+}
+
+// -------- MsgBatchReserve --------
+
+// MsgBatchReserve creates per-task chain-side balance reservations at task
+// accept time for per-request billing. Closes KT 30-case Issue 1 — without
+// it, a user can dispatch a task and then withdraw their balance before
+// settlement, leaving the Worker unpaid.
+//
+// Per-token billing already had this via FreezeBalance/UnfreezeBalance; this
+// message provides the equivalent entry point for per-request billing.
+//
+// Submitted by the Leader (or Proposer playing Leader role) periodically as
+// new tasks are accepted off-chain. The keeper iterates entries, calls
+// FreezeBalance per entry, and silently skips invalid / over-budget /
+// duplicate / past-expiry rows so a single bad row cannot reject the batch.
+//
+// BatchSettlement automatically releases the freeze at settle time via
+// UnfreezeBalance (idempotent — no-op when nothing is frozen).
+type MsgBatchReserve struct {
+	Proposer    string         `protobuf:"bytes,1,opt,name=proposer,proto3" json:"proposer"`
+	MerkleRoot  []byte         `protobuf:"bytes,2,opt,name=merkle_root,proto3" json:"merkle_root"`
+	Entries     []ReserveEntry `protobuf:"bytes,3,rep,name=entries,proto3" json:"entries"`
+	ProposerSig []byte         `protobuf:"bytes,4,opt,name=proposer_sig,proto3" json:"proposer_sig"`
+	ResultCount uint32         `protobuf:"varint,5,opt,name=result_count,proto3" json:"result_count"`
+}
+
+// ReserveEntry is one chain-side reservation: freeze MaxFee from UserAddress
+// for TaskId, until ExpireBlock or settlement.
+type ReserveEntry struct {
+	UserAddress string   `protobuf:"bytes,1,opt,name=user_address,proto3" json:"user_address"`
+	TaskId      []byte   `protobuf:"bytes,2,opt,name=task_id,proto3" json:"task_id"`
+	MaxFee      sdk.Coin `protobuf:"bytes,3,opt,name=max_fee,proto3" json:"max_fee"`
+	ExpireBlock int64    `protobuf:"varint,4,opt,name=expire_block,proto3" json:"expire_block"`
+}
+
+func (m *ReserveEntry) ProtoMessage() {}
+func (m *ReserveEntry) Reset()        { *m = ReserveEntry{} }
+func (m *ReserveEntry) String() string {
+	return fmt.Sprintf("ReserveEntry{user=%s,task=%s,max_fee=%s,expire=%d}",
+		m.UserAddress, hex.EncodeToString(m.TaskId), m.MaxFee, m.ExpireBlock)
+}
+
+func NewMsgBatchReserve(proposer string, merkleRoot []byte, entries []ReserveEntry, proposerSig []byte) *MsgBatchReserve {
+	return &MsgBatchReserve{
+		Proposer:    proposer,
+		MerkleRoot:  merkleRoot,
+		Entries:     entries,
+		ProposerSig: proposerSig,
+		ResultCount: uint32(len(entries)),
+	}
+}
+
+func (msg *MsgBatchReserve) ProtoMessage() {}
+func (msg *MsgBatchReserve) Reset()        { *msg = MsgBatchReserve{} }
+func (msg *MsgBatchReserve) String() string {
+	return fmt.Sprintf("MsgBatchReserve{%s,count=%d}", msg.Proposer, len(msg.Entries))
+}
+
+func (msg *MsgBatchReserve) ValidateBasic() error {
+	if _, err := sdk.AccAddressFromBech32(msg.Proposer); err != nil {
+		return sdkerrors.Wrap(err, "invalid proposer address")
+	}
+	if len(msg.MerkleRoot) == 0 {
+		return sdkerrors.Wrap(ErrInvalidSettlement, "merkle_root cannot be empty")
+	}
+	if len(msg.Entries) == 0 {
+		return sdkerrors.Wrap(ErrInvalidSettlement, "entries cannot be empty")
+	}
+	if len(msg.ProposerSig) == 0 {
+		return sdkerrors.Wrap(ErrInvalidSignature, "proposer_sig cannot be empty")
+	}
+	if msg.ResultCount != uint32(len(msg.Entries)) {
+		return sdkerrors.Wrapf(ErrInvalidSettlement, "result_count mismatch: declared %d, actual %d", msg.ResultCount, len(msg.Entries))
+	}
+	return nil
+}
+
+func (msg *MsgBatchReserve) GetSigners() []sdk.AccAddress {
 	proposer, _ := sdk.AccAddressFromBech32(msg.Proposer)
 	return []sdk.AccAddress{proposer}
 }

@@ -10,6 +10,7 @@ func init() {
 	proto.RegisterType((*MsgDepositResponse)(nil), "funai.settlement.MsgDepositResponse")
 	proto.RegisterType((*MsgWithdrawResponse)(nil), "funai.settlement.MsgWithdrawResponse")
 	proto.RegisterType((*MsgBatchSettlementResponse)(nil), "funai.settlement.MsgBatchSettlementResponse")
+	proto.RegisterType((*MsgBatchReserveResponse)(nil), "funai.settlement.MsgBatchReserveResponse")
 	proto.RegisterType((*MsgFraudProofResponse)(nil), "funai.settlement.MsgFraudProofResponse")
 	proto.RegisterType((*MsgSecondVerificationResultResponse)(nil), "funai.settlement.MsgSecondVerificationResultResponse")
 	proto.RegisterType((*MsgSecondVerificationResultBatchResponse)(nil), "funai.settlement.MsgSecondVerificationResultBatchResponse")
@@ -19,6 +20,7 @@ type MsgServer interface {
 	Deposit(context.Context, *MsgDeposit) (*MsgDepositResponse, error)
 	Withdraw(context.Context, *MsgWithdraw) (*MsgWithdrawResponse, error)
 	BatchSettle(context.Context, *MsgBatchSettlement) (*MsgBatchSettlementResponse, error)
+	BatchReserve(context.Context, *MsgBatchReserve) (*MsgBatchReserveResponse, error)
 	SubmitFraudProof(context.Context, *MsgFraudProof) (*MsgFraudProofResponse, error)
 	SubmitSecondVerificationResult(context.Context, *MsgSecondVerificationResult) (*MsgSecondVerificationResultResponse, error)
 	SubmitSecondVerificationResultBatch(context.Context, *MsgSecondVerificationResultBatch) (*MsgSecondVerificationResultBatchResponse, error)
@@ -43,6 +45,19 @@ type MsgBatchSettlementResponse struct {
 func (m *MsgBatchSettlementResponse) ProtoMessage()  {}
 func (m *MsgBatchSettlementResponse) Reset()         { *m = MsgBatchSettlementResponse{} }
 func (m *MsgBatchSettlementResponse) String() string { return "MsgBatchSettlementResponse" }
+
+// MsgBatchReserveResponse reports per-batch reservation outcome. Bad rows
+// (account missing, denom mismatch, expired, duplicate, insufficient
+// available balance) are silently skipped so a single bad row cannot block
+// the rest — RejectedCount tells the Leader how many were dropped.
+type MsgBatchReserveResponse struct {
+	AcceptedCount uint32 `protobuf:"varint,1,opt,name=accepted_count,proto3" json:"accepted_count"`
+	RejectedCount uint32 `protobuf:"varint,2,opt,name=rejected_count,proto3" json:"rejected_count"`
+}
+
+func (m *MsgBatchReserveResponse) ProtoMessage()  {}
+func (m *MsgBatchReserveResponse) Reset()         { *m = MsgBatchReserveResponse{} }
+func (m *MsgBatchReserveResponse) String() string { return "MsgBatchReserveResponse" }
 
 type MsgFraudProofResponse struct{}
 

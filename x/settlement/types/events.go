@@ -4,6 +4,7 @@ const (
 	EventDeposit                       = "settlement_deposit"
 	EventWithdraw                      = "settlement_withdraw"
 	EventBatchSettlement               = "batch_settlement"
+	EventBatchReserve                  = "batch_reserve"
 	EventFraudProof                    = "fraud_proof"
 	EventSecondVerificationResult      = "second_verification_result"
 	EventSecondVerificationResultBatch = "second_verification_result_batch"
