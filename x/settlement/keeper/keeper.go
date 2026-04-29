@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -1139,23 +1140,60 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 	return batchId, nil
 }
 
+// dedupVerifierResults returns a deterministic-ordered slice with at most one
+// entry per bech32 address, preserving first-seen order. KT Issue 8: pre-fix
+// `distribute*Fee` divided the verifier pool by `len(verifiers)` and paid each
+// row, so the same address appearing twice in the input received double its
+// fair share (total pool was preserved but distribution was skewed; on a
+// task with verifiers [A, B, B] the address B received 2/3 of the pool while
+// A received 1/3 instead of the 1/2 each they should have).
+//
+// Defensive dedup at the distribution layer protects the chain even if a
+// faulty / malicious Proposer constructs a SettlementEntry with duplicate
+// VerifierResult.Address. Empty addresses and bad-bech32 addresses are
+// skipped. Returns nil for empty input.
+func dedupVerifierResults(verifiers []types.VerifierResult) []types.VerifierResult {
+	if len(verifiers) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(verifiers))
+	out := make([]types.VerifierResult, 0, len(verifiers))
+	for _, v := range verifiers {
+		if v.Address == "" {
+			continue
+		}
+		if _, ok := seen[v.Address]; ok {
+			continue
+		}
+		seen[v.Address] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
 // distributeSuccessFee distributes SUCCESS task fee per V5.2 §11:
 // 85% executor, 12% verifiers (3 × 4%), 3% multi-verification fund (audit fund).
 // Executor gets the remainder after verifiers + fund to prevent dust loss.
+//
+// KT Issue 8: verifiers list is dedup'd by bech32 address before splitting
+// the verifier pool, so a malformed entry with a duplicated verifier cannot
+// double-pay one address.
 func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr sdk.AccAddress, verifiers []types.VerifierResult, params types.Params) {
 	totalVerifierAmount := fee.Amount.MulRaw(int64(params.VerifierFeeRatio)).QuoRaw(1000)
 	auditFundAmount := fee.Amount.MulRaw(int64(params.MultiVerificationFundRatio)).QuoRaw(1000)
 
+	uniqueVerifiers := dedupVerifierResults(verifiers)
+
 	verifierDistributed := math.ZeroInt()
-	if len(verifiers) > 0 {
-		perVerifier := totalVerifierAmount.QuoRaw(int64(len(verifiers)))
-		for i, v := range verifiers {
+	if len(uniqueVerifiers) > 0 {
+		perVerifier := totalVerifierAmount.QuoRaw(int64(len(uniqueVerifiers)))
+		for i, v := range uniqueVerifiers {
 			vAddr, vErr := sdk.AccAddressFromBech32(v.Address)
 			if vErr != nil {
 				continue
 			}
 			amount := perVerifier
-			if i == len(verifiers)-1 {
+			if i == len(uniqueVerifiers)-1 {
 				amount = totalVerifierAmount.Sub(verifierDistributed)
 			}
 			vCoin := sdk.NewCoin(fee.Denom, amount)
@@ -1179,21 +1217,25 @@ func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr s
 // distributeFailFee distributes FAIL task fee (15% of original): verifiers 12% + multi-verification fund 3%.
 // Split ratio between verifiers and fund matches the non-executor portion of the success-fee split
 // (VerifierFeeRatio / (VerifierFeeRatio + MultiVerificationFundRatio)).
+//
+// KT Issue 8: same dedup as distributeSuccessFee — duplicate verifier rows
+// cannot double-pay one address.
 func (k Keeper) distributeFailFee(ctx sdk.Context, failFee sdk.Coin, verifiers []types.VerifierResult, params types.Params) {
-	if len(verifiers) > 0 {
+	uniqueVerifiers := dedupVerifierResults(verifiers)
+	if len(uniqueVerifiers) > 0 {
 		totalVerifierRatio := params.VerifierFeeRatio
 		totalDistributable := params.VerifierFeeRatio + params.MultiVerificationFundRatio
 		totalVerifierAmount := failFee.Amount.MulRaw(int64(totalVerifierRatio)).QuoRaw(int64(totalDistributable))
-		perVerifier := totalVerifierAmount.QuoRaw(int64(len(verifiers)))
+		perVerifier := totalVerifierAmount.QuoRaw(int64(len(uniqueVerifiers)))
 		distributed := math.ZeroInt()
-		for i, v := range verifiers {
+		for i, v := range uniqueVerifiers {
 			vAddr, vErr := sdk.AccAddressFromBech32(v.Address)
 			if vErr != nil {
 				continue
 			}
 			// Last verifier gets remainder to avoid dust loss
 			amount := perVerifier
-			if i == len(verifiers)-1 {
+			if i == len(uniqueVerifiers)-1 {
 				amount = totalVerifierAmount.Sub(distributed)
 			}
 			vCoin := sdk.NewCoin(failFee.Denom, amount)
@@ -1315,6 +1357,24 @@ func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) err
 	workerAddr, addrErr := sdk.AccAddressFromBech32(msg.WorkerAddress)
 	if addrErr != nil {
 		return sdkerrors.Wrap(addrErr, "invalid worker address")
+	}
+
+	// KT Issue 5: bind ActualContent to ContentHash before trusting either.
+	// Pre-fix the keeper only verified the Worker's signature on ContentHash;
+	// the ActualContent field was used for downstream business logic (slash
+	// + refund) without any check that it actually hashes to the signed
+	// digest. An attacker who captured ANY (ContentHash, WorkerContentSig)
+	// pair from past inference traffic could submit it with arbitrary
+	// ActualContent and slash the Worker for content the Worker never
+	// produced. The bind check below makes the proof's two halves agree.
+	if len(msg.ActualContent) > 0 || len(msg.ContentHash) > 0 {
+		if len(msg.ActualContent) == 0 || len(msg.ContentHash) == 0 {
+			return fmt.Errorf("FraudProof: ContentHash and ActualContent must both be present")
+		}
+		actualHash := sha256.Sum256(msg.ActualContent)
+		if !bytes.Equal(actualHash[:], msg.ContentHash) {
+			return fmt.Errorf("FraudProof: sha256(ActualContent) does not match ContentHash — proof is unbound")
+		}
 	}
 
 	// H3: verify Worker's content signature using on-chain pubkey to prevent fake FraudProof.

@@ -572,6 +572,16 @@ func (n *Node) startBatchLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// KT Issue 10: refresh proposer's view of the current chain
+			// epoch before the do* calls so newly-completed audits
+			// (`moveAuditToReadyLocked`) and any future epoch-stamped
+			// outputs see the right value. Best-effort — on chain query
+			// failure the proposer keeps its last-known epoch.
+			if n.Chain != nil && n.Proposer != nil {
+				if _, height, err := n.Chain.GetLatestBlockHash(ctx); err == nil && height > 0 {
+					n.Proposer.SetCurrentEpoch(height / 100)
+				}
+			}
 			n.doBatchReserve(ctx)
 			n.doBatchSettlement(ctx)
 			n.doAuditBatchSubmit(ctx)
