@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -14,6 +15,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
+	"github.com/funai-wiki/funai-chain/p2p/chain"
 	p2phost "github.com/funai-wiki/funai-chain/p2p/host"
 	"github.com/funai-wiki/funai-chain/p2p/leader"
 	p2ptypes "github.com/funai-wiki/funai-chain/p2p/types"
@@ -708,6 +710,16 @@ func (n *Node) doBatchSettlement(ctx context.Context) {
 
 	hash, err := n.Chain.BroadcastSettlement(ctx, msg, n.Config.WorkerPrivKey, n.Config.WorkerAddr, n.Config.ChainID)
 	if err != nil {
+		// KT 30-case Added A: if the chain rejected the batch as too large,
+		// halve the proposer's batch ceiling so the next tick produces a
+		// chunk that fits. Entries stay queued (no CommitBatch) so no work
+		// is lost; the loop converges via repeated halving.
+		if errors.Is(err, chain.ErrTxTooLarge) {
+			newLimit := n.Proposer.ShrinkBatchLimit()
+			log.Printf("dispatch: BatchSettlement too large (%d entries); shrinking batch limit to %d, retry next tick: %v",
+				len(msg.Entries), newLimit, err)
+			return
+		}
 		log.Printf("dispatch: BatchSettlement broadcast failed (entries retained for retry): %v", err)
 		return // entries stay in Proposer.clearedTasks, will retry next tick
 	}

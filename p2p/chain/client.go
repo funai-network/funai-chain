@@ -41,7 +41,30 @@ type Client struct {
 	cachedAccNum   uint64
 	cachedSeq      uint64
 	seqInitialized bool
+
+	// KT 30-case Added A — consensus params cache. Populated lazily on the
+	// first broadcast that needs it (or via an explicit RefreshConsensusParams
+	// call). The fallback values are conservative — they are what CometBFT's
+	// own defaults are if /consensus_params is unreachable; the chain may use
+	// larger limits in which case batches will be smaller than they could be
+	// (a minor inefficiency, not a correctness issue).
+	consensusMu        sync.RWMutex
+	consensusFetched   bool
+	consensusMaxBytes  int64 // block.max_bytes; 0 = no limit
+	consensusMaxGas    int64 // block.max_gas;  -1 = no limit
 }
+
+// DefaultMaxTxBytes is the safety-margined fallback used when
+// /consensus_params is unreachable. CometBFT's own default block.max_bytes
+// is 1 048 576 (1 MiB); we drop to 750 000 to leave headroom for tx
+// metadata + other txs in the same block.
+const DefaultMaxTxBytes int64 = 750_000
+
+// ErrTxTooLarge is returned by the broadcast helpers when the encoded tx
+// exceeds the chain's block.max_bytes preflight (KT 30-case Added A).
+// The dispatch layer recognises this sentinel and shrinks the proposer's
+// batch limit so the next tick produces a chunk that fits.
+var ErrTxTooLarge = fmt.Errorf("tx encoded size exceeds chain block.max_bytes preflight")
 
 func NewClient(rpcURL, restURL string) *Client {
 	return &Client{
@@ -557,6 +580,98 @@ func (c *Client) WaitForTxInclusion(ctx context.Context, txHash string, timeout 
 	}
 }
 
+// RefreshConsensusParams queries CometBFT's /consensus_params and caches
+// the block-level max_bytes / max_gas. Called lazily on first need; safe to
+// call repeatedly. Returns (maxBytes, maxGas, err); on error the cache is
+// left untouched and the previously-cached values (or fallbacks) remain in
+// effect — callers should treat any error as "use the fallback" rather than
+// fail.
+func (c *Client) RefreshConsensusParams(ctx context.Context) (int64, int64, error) {
+	url := c.rpcURL + "/consensus_params"
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, 0, fmt.Errorf("query consensus_params: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Result struct {
+			ConsensusParams struct {
+				Block struct {
+					MaxBytes string `json:"max_bytes"`
+					MaxGas   string `json:"max_gas"`
+				} `json:"block"`
+			} `json:"consensus_params"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, 0, fmt.Errorf("decode consensus_params: %w", err)
+	}
+
+	maxBytes, _ := strconv.ParseInt(result.Result.ConsensusParams.Block.MaxBytes, 10, 64)
+	maxGas, _ := strconv.ParseInt(result.Result.ConsensusParams.Block.MaxGas, 10, 64)
+	if maxBytes <= 0 {
+		// Some CometBFT genesises set max_bytes=-1 ("unlimited"). Treat as
+		// fallback so we still preflight; an unbounded tx would still be
+		// rejected by the mempool's own max-tx-bytes setting.
+		maxBytes = DefaultMaxTxBytes
+	}
+
+	c.consensusMu.Lock()
+	c.consensusFetched = true
+	c.consensusMaxBytes = maxBytes
+	c.consensusMaxGas = maxGas
+	c.consensusMu.Unlock()
+	return maxBytes, maxGas, nil
+}
+
+// MaxTxBytesPreflight returns the byte budget for tx-bytes preflight: the
+// cached chain-side block.max_bytes minus a small safety margin so other
+// txs in the same block still fit. Falls back to DefaultMaxTxBytes when
+// the cache is empty.
+func (c *Client) MaxTxBytesPreflight() int64 {
+	c.consensusMu.RLock()
+	maxBytes := c.consensusMaxBytes
+	fetched := c.consensusFetched
+	c.consensusMu.RUnlock()
+	if !fetched || maxBytes <= 0 {
+		return DefaultMaxTxBytes
+	}
+	// Reserve 10% for tx metadata + co-residents in the block.
+	margin := maxBytes / 10
+	if margin < 1024 {
+		margin = 1024
+	}
+	if maxBytes-margin <= 0 {
+		return DefaultMaxTxBytes
+	}
+	return maxBytes - margin
+}
+
+// preflightTxSize compares an encoded tx to the cached max-bytes budget,
+// triggering a one-shot RefreshConsensusParams if not yet fetched.
+// Returns ErrTxTooLarge wrapped with the actual size and budget for caller
+// diagnostics; nil when the tx fits.
+func (c *Client) preflightTxSize(ctx context.Context, txBytes []byte) error {
+	c.consensusMu.RLock()
+	fetched := c.consensusFetched
+	c.consensusMu.RUnlock()
+	if !fetched {
+		// Best-effort refresh; ignore error and fall through to fallback.
+		_, _, _ = c.RefreshConsensusParams(ctx)
+	}
+	budget := c.MaxTxBytesPreflight()
+	if int64(len(txBytes)) > budget {
+		return fmt.Errorf("%w: encoded=%d budget=%d", ErrTxTooLarge, len(txBytes), budget)
+	}
+	return nil
+}
+
 // BroadcastTxConfirmed broadcasts a signed tx and blocks until it is included
 // in a block AND DeliverTx returned code=0. Returns the tx hash on success.
 //
@@ -692,6 +807,17 @@ func (c *Client) BroadcastSettlement(ctx context.Context, msg *settlementtypes.M
 		return "", fmt.Errorf("encode tx: %w", err)
 	}
 
+	// KT 30-case Added A: refuse to broadcast a tx that exceeds the chain's
+	// block.max_bytes preflight. Without this, a too-large batch lands in
+	// CheckTx as "tx too large" and the entries are silently lost (Proposer's
+	// CommitBatch only fires on success, so the entries stay queued — but
+	// the broadcast spam keeps trying the same oversized payload). Returning
+	// ErrTxTooLarge lets the dispatch layer halve the proposer's batch limit
+	// and retry on the next tick.
+	if err := c.preflightTxSize(ctx, txBytes); err != nil {
+		return "", err
+	}
+
 	hash, err := c.BroadcastTxConfirmed(ctx, txBytes, DefaultConfirmTimeout)
 	if err != nil {
 		// Reset sequence on mismatch so next attempt re-queries
@@ -779,6 +905,17 @@ func (c *Client) BroadcastBatchReserve(ctx context.Context, msg *settlementtypes
 		return "", fmt.Errorf("encode tx: %w", err)
 	}
 
+	// KT 30-case Added A: refuse to broadcast a tx that exceeds the chain's
+	// block.max_bytes preflight. Without this, a too-large batch lands in
+	// CheckTx as "tx too large" and the entries are silently lost (Proposer's
+	// CommitBatch only fires on success, so the entries stay queued — but
+	// the broadcast spam keeps trying the same oversized payload). Returning
+	// ErrTxTooLarge lets the dispatch layer halve the proposer's batch limit
+	// and retry on the next tick.
+	if err := c.preflightTxSize(ctx, txBytes); err != nil {
+		return "", err
+	}
+
 	hash, err := c.BroadcastTxConfirmed(ctx, txBytes, DefaultConfirmTimeout)
 	if err != nil {
 		if strings.Contains(err.Error(), "sequence") {
@@ -855,6 +992,17 @@ func (c *Client) BroadcastAuditBatch(ctx context.Context, msg *settlementtypes.M
 	txBytes, err := txCfg.TxEncoder()(txBuilder.GetTx())
 	if err != nil {
 		return "", fmt.Errorf("encode tx: %w", err)
+	}
+
+	// KT 30-case Added A: refuse to broadcast a tx that exceeds the chain's
+	// block.max_bytes preflight. Without this, a too-large batch lands in
+	// CheckTx as "tx too large" and the entries are silently lost (Proposer's
+	// CommitBatch only fires on success, so the entries stay queued — but
+	// the broadcast spam keeps trying the same oversized payload). Returning
+	// ErrTxTooLarge lets the dispatch layer halve the proposer's batch limit
+	// and retry on the next tick.
+	if err := c.preflightTxSize(ctx, txBytes); err != nil {
+		return "", err
 	}
 
 	hash, err := c.BroadcastTxConfirmed(ctx, txBytes, DefaultConfirmTimeout)
@@ -937,6 +1085,17 @@ func (c *Client) BroadcastFraudProof(ctx context.Context, msg *settlementtypes.M
 	txBytes, err := txCfg.TxEncoder()(txBuilder.GetTx())
 	if err != nil {
 		return "", fmt.Errorf("encode tx: %w", err)
+	}
+
+	// KT 30-case Added A: refuse to broadcast a tx that exceeds the chain's
+	// block.max_bytes preflight. Without this, a too-large batch lands in
+	// CheckTx as "tx too large" and the entries are silently lost (Proposer's
+	// CommitBatch only fires on success, so the entries stay queued — but
+	// the broadcast spam keeps trying the same oversized payload). Returning
+	// ErrTxTooLarge lets the dispatch layer halve the proposer's batch limit
+	// and retry on the next tick.
+	if err := c.preflightTxSize(ctx, txBytes); err != nil {
+		return "", err
 	}
 
 	hash, err := c.BroadcastTxConfirmed(ctx, txBytes, DefaultConfirmTimeout)

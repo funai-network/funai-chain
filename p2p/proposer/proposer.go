@@ -53,7 +53,22 @@ type Proposer struct {
 	activeWorkers      []vrftypes.RankedWorker
 	Store              *p2pstore.Store    // P2-1: persistent storage for audit trail
 	Rebroadcaster      RebroadcastStopper // P2-2: stop rebroadcast when 3 results collected
+
+	// KT 30-case Added A: runtime-mutable batch ceiling. Default = MaxBatchEntries
+	// const; halved by ShrinkBatchLimit when chain rejects a batch as too large
+	// (chain.ErrTxTooLarge). Floored at MinBatchLimit to avoid infinite shrink.
+	// 0 means "use the default const" — accessor methods read through to the
+	// const if this is unset, so existing tests that touch Proposer fields
+	// directly do not need updating.
+	batchLimitOverride int
 }
+
+// MinBatchLimit is the floor that ShrinkBatchLimit will not shrink below.
+// At ~5 KB per entry, 64 entries is ~320 KB which sits well within the
+// CometBFT default 1 MiB block.max_bytes; any batch larger than this should
+// be tractable and a chain that rejects 64-entry batches needs operator
+// attention rather than further automatic shrinkage.
+const MinBatchLimit = 64
 
 // readyAuditEntry holds a completed audit ready for on-chain submission.
 // Responses are the Worker-signed P2P payloads whose embedded signatures
@@ -442,10 +457,63 @@ func (p *Proposer) shouldAudit(taskId, blockHash []byte) bool {
 }
 
 // BuildBatch constructs a MsgBatchSettlement if enough tasks are accumulated.
-// MaxBatchEntries is the maximum entries per batch to stay within block gas limit (E17).
-// gasLimit = 200000 + len*2000; at 100M block gas limit, max = (100M - 200K) / 2K = 49900.
-// Use 40000 as conservative limit.
+// MaxBatchEntries is the *default* maximum entries per batch to stay within
+// block gas limit (E17). gasLimit = 200000 + len*2000; at 100M block gas
+// limit, max = (100M - 200K) / 2K = 49900. Use 40000 as conservative limit.
+//
+// KT 30-case Added A: at runtime this can be overridden lower via
+// SetBatchLimit / ShrinkBatchLimit. The override addresses the *bytes*
+// dimension (mempool max-tx-bytes) which is independent of gas — a 40 000
+// entry batch easily exceeds CometBFT's 1 MiB default mempool tx limit
+// even though it fits gas-wise.
 const MaxBatchEntries = 40000
+
+// effectiveBatchLimit returns the runtime-effective batch ceiling, falling
+// back to MaxBatchEntries when no override has been set. Caller MUST hold
+// p.mu (read or write).
+func (p *Proposer) effectiveBatchLimit() int {
+	if p.batchLimitOverride > 0 {
+		return p.batchLimitOverride
+	}
+	return MaxBatchEntries
+}
+
+// GetBatchLimit returns the current effective batch ceiling.
+func (p *Proposer) GetBatchLimit() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.effectiveBatchLimit()
+}
+
+// SetBatchLimit overrides the runtime batch ceiling. Floored at MinBatchLimit;
+// a value <= 0 resets to the MaxBatchEntries default.
+func (p *Proposer) SetBatchLimit(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if n <= 0 {
+		p.batchLimitOverride = 0
+		return
+	}
+	if n < MinBatchLimit {
+		n = MinBatchLimit
+	}
+	p.batchLimitOverride = n
+}
+
+// ShrinkBatchLimit halves the runtime batch ceiling, floored at MinBatchLimit.
+// Called by dispatch when the chain rejects a batch as too large
+// (chain.ErrTxTooLarge). Returns the new effective limit.
+func (p *Proposer) ShrinkBatchLimit() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	current := p.effectiveBatchLimit()
+	next := current / 2
+	if next < MinBatchLimit {
+		next = MinBatchLimit
+	}
+	p.batchLimitOverride = next
+	return next
+}
 
 func (p *Proposer) BuildBatch() *settlementtypes.MsgBatchSettlement {
 	p.mu.Lock()
@@ -455,10 +523,12 @@ func (p *Proposer) BuildBatch() *settlementtypes.MsgBatchSettlement {
 		return nil
 	}
 
-	// E17: cap batch size to prevent exceeding block gas limit
+	// E17: cap batch size to prevent exceeding block gas limit.
+	// Added A: respect runtime-shrunk limit on top of the gas-based cap.
+	limit := p.effectiveBatchLimit()
 	batchSize := len(p.clearedTasks)
-	if batchSize > MaxBatchEntries {
-		batchSize = MaxBatchEntries
+	if batchSize > limit {
+		batchSize = limit
 	}
 
 	entries := make([]settlementtypes.SettlementEntry, batchSize)
@@ -480,13 +550,15 @@ func (p *Proposer) BuildBatch() *settlementtypes.MsgBatchSettlement {
 }
 
 // CommitBatch clears the committed entries after successful on-chain broadcast.
-// E17: only clears up to MaxBatchEntries; remaining entries stay for next batch.
+// E17 + Added A: clears up to the current effective batch limit; remaining
+// entries stay queued for the next tick.
 func (p *Proposer) CommitBatch() {
 	p.mu.Lock()
-	if len(p.clearedTasks) <= MaxBatchEntries {
+	limit := p.effectiveBatchLimit()
+	if len(p.clearedTasks) <= limit {
 		p.clearedTasks = nil
 	} else {
-		p.clearedTasks = p.clearedTasks[MaxBatchEntries:]
+		p.clearedTasks = p.clearedTasks[limit:]
 	}
 	p.mu.Unlock()
 }
