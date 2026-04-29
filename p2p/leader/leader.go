@@ -94,11 +94,29 @@ type Leader struct {
 	SelfPubkey  []byte
 }
 
-// PendingEntry tracks one per-token task's frozen fee for shadow balance (S9 §2.3).
+// PendingEntry tracks one in-flight task's fee commitment for shadow balance.
+//
+// Two flavors of "freeze" backing this entry:
+//   - per-token (S9):     created by user's MsgRequestQuote at session start
+//   - per-request (V6):   created by Leader's MsgBatchReserve at accept time
+//                          (KT 30-case Issue 1 fix — PR #44 + this PR)
+//
+// IsPerRequest distinguishes the two so the reserve loop only emits
+// MsgBatchReserve for per-request tasks (per-token already has its own
+// freeze entry point and would double-freeze otherwise). Reserved is set
+// to true after the chain confirms the freeze; entries with Reserved=false
+// are retried on each reserve tick until either confirmed or expired.
+//
+// UserAddress holds the bech32 form needed by the chain message; the
+// pendingFees map is keyed by hex(pubkey) and that hex string alone is
+// not directly usable in MsgBatchReserve.ReserveEntry.UserAddress.
 type PendingEntry struct {
-	TaskId      []byte
-	MaxFee      uint64
-	ExpireBlock uint64
+	TaskId       []byte
+	MaxFee       uint64
+	ExpireBlock  uint64
+	UserAddress  string // bech32, populated at append time
+	IsPerRequest bool   // true if this entry needs a MsgBatchReserve emission
+	Reserved     bool   // true once chain has confirmed the freeze
 }
 
 // WorkerInfo holds a worker's info for VRF ranking.
@@ -393,9 +411,12 @@ func (l *Leader) dispatchSingle(ctx context.Context, req *p2ptypes.InferRequest,
 
 		l.activeInferenceTasks[w.Address]++
 		l.pendingFees[userAddr] = append(l.pendingFees[userAddr], PendingEntry{
-			TaskId:      taskId,
-			MaxFee:      req.EffectiveFee(),
-			ExpireBlock: req.ExpireBlock,
+			TaskId:       taskId,
+			MaxFee:       req.EffectiveFee(),
+			ExpireBlock:  req.ExpireBlock,
+			UserAddress:  pubkeyToBech32(req.UserPubkey),
+			IsPerRequest: !req.IsPerToken(),
+			Reserved:     false,
 		})
 
 		return w.Address, nil
@@ -550,6 +571,95 @@ func (l *Leader) cleanExpiredPending() {
 			delete(l.pendingFees, user)
 		} else {
 			l.pendingFees[user] = kept
+		}
+	}
+}
+
+// ReservationKey identifies one PendingEntry for the reserve commit/retry path.
+// (userAddrHex + taskId is unique within Leader's pendingFees map.)
+type ReservationKey struct {
+	UserAddrHex string
+	TaskId      []byte
+}
+
+// BuildReserveEntries returns the per-request, not-yet-reserved entries that
+// should be packaged into a MsgBatchReserve, plus the keys needed to commit
+// (or revert) the reservation status. Caller is responsible for actually
+// constructing the protobuf Msg, signing it, and broadcasting; on success
+// it must call CommitReservations(keys), on failure it does nothing (entries
+// stay un-Reserved and will be retried next tick).
+//
+// Returns (nil, nil) if there is nothing to reserve.
+//
+// Per-token entries are excluded — those carry their own freeze created at
+// MsgRequestQuote time, and emitting MsgBatchReserve for them would
+// double-freeze the same balance (FreezeBalance refuses double-freeze on
+// duplicate task_id, but the duplicate row is wasted gas).
+func (l *Leader) BuildReserveEntries() (entries []ReserveEntryView, keys []ReservationKey) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Drop expired entries first — same approximation used by checkBalanceWithPending.
+	l.cleanExpiredPending()
+
+	for userHex, perUser := range l.pendingFees {
+		for _, e := range perUser {
+			if e.Reserved || !e.IsPerRequest {
+				continue
+			}
+			if e.UserAddress == "" {
+				// Defensive: skip entries with no bech32 form (would be a bug
+				// in the append site, but never crash the reserve loop).
+				continue
+			}
+			entries = append(entries, ReserveEntryView{
+				UserAddress: e.UserAddress,
+				TaskId:      append([]byte(nil), e.TaskId...),
+				MaxFee:      e.MaxFee,
+				ExpireBlock: e.ExpireBlock,
+			})
+			keys = append(keys, ReservationKey{
+				UserAddrHex: userHex,
+				TaskId:      append([]byte(nil), e.TaskId...),
+			})
+		}
+	}
+	return entries, keys
+}
+
+// ReserveEntryView mirrors x/settlement/types.ReserveEntry without importing
+// settlement types into the leader package (keeps leader free of chain-side
+// type coupling). The dispatch caller maps this 1:1 to types.ReserveEntry.
+type ReserveEntryView struct {
+	UserAddress string
+	TaskId      []byte
+	MaxFee      uint64
+	ExpireBlock uint64
+}
+
+// CommitReservations marks the listed entries as Reserved=true. Called by
+// the dispatch reserve loop only after the chain confirms the MsgBatchReserve
+// inclusion (BroadcastTxConfirmed succeeded). On chain-broadcast failure the
+// caller MUST NOT call this — the entries stay Reserved=false and the next
+// reserve tick will retry them.
+//
+// The receipt-cleanup paths (ReleaseBusy / HandleReceiptBusyRelease) remove
+// PendingEntry from the map entirely, so a "commit then receipt" race is
+// fine: commit sets Reserved=true on a still-present entry, then receipt
+// removes it; either order produces the same end-state.
+func (l *Leader) CommitReservations(keys []ReservationKey) {
+	if len(keys) == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, k := range keys {
+		entries := l.pendingFees[k.UserAddrHex]
+		for i, e := range entries {
+			if bytes.Equal(e.TaskId, k.TaskId) {
+				entries[i].Reserved = true
+				break
+			}
 		}
 	}
 }

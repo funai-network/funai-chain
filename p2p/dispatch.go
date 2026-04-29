@@ -12,12 +12,15 @@ import (
 
 	sdkmath "cosmossdk.io/math"
 	"github.com/cometbft/cometbft/crypto/secp256k1"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
 	p2phost "github.com/funai-wiki/funai-chain/p2p/host"
 	"github.com/funai-wiki/funai-chain/p2p/leader"
 	p2ptypes "github.com/funai-wiki/funai-chain/p2p/types"
 	"github.com/funai-wiki/funai-chain/p2p/worker"
+	"github.com/funai-wiki/funai-chain/x/settlement/keeper"
+	settlementtypes "github.com/funai-wiki/funai-chain/x/settlement/types"
 	vrftypes "github.com/funai-wiki/funai-chain/x/vrf/types"
 )
 
@@ -568,9 +571,76 @@ func (n *Node) startBatchLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			n.doBatchReserve(ctx)
 			n.doBatchSettlement(ctx)
 			n.doAuditBatchSubmit(ctx)
 		}
+	}
+}
+
+// doBatchReserve drains each Leader's per-request not-yet-reserved
+// PendingEntries into a MsgBatchReserve and broadcasts it (KT 30-case
+// Issue 1, PR-B follow-up to PR #44). On chain confirmation the entries are
+// marked Reserved=true so they are not re-sent on the next tick. On
+// broadcast failure (CheckTx reject, DeliverTx fail, or inclusion timeout)
+// no commit happens — the next tick retries.
+//
+// Per-token tasks are excluded by Leader.BuildReserveEntries because they
+// already have a freeze from MsgRequestQuote.
+//
+// One MsgBatchReserve per Leader (per model_id) keeps the per-Leader
+// pendingFees state local to its own broadcast and avoids cross-model
+// merge complexity. The Cosmos sequence manager in chain.Client serializes
+// the resulting tx submissions so they don't race on nonce.
+func (n *Node) doBatchReserve(ctx context.Context) {
+	if n.Chain == nil || len(n.Leaders) == 0 {
+		return
+	}
+	if n.Config.WorkerAddr == "" || len(n.Config.WorkerPrivKey) == 0 {
+		// No signing key — don't even bother building (pending stays for next tick
+		// when key may be configured).
+		return
+	}
+
+	for modelId, l := range n.Leaders {
+		entries, keys := l.BuildReserveEntries()
+		if len(entries) == 0 {
+			continue
+		}
+
+		// Build the keeper-side ReserveEntry list from the leader's view.
+		stEntries := make([]settlementtypes.ReserveEntry, 0, len(entries))
+		for _, e := range entries {
+			stEntries = append(stEntries, settlementtypes.ReserveEntry{
+				UserAddress: e.UserAddress,
+				TaskId:      e.TaskId,
+				MaxFee:      sdk.NewCoin(settlementtypes.DefaultDenom, sdkmath.NewIntFromUint64(e.MaxFee)),
+				ExpireBlock: int64(e.ExpireBlock),
+			})
+		}
+
+		// Build merkle root + Proposer signature using the same scaffolding
+		// MsgBatchSettlement uses (settlement keeper's verifyProposerSigOnRoot
+		// expects sha256(merkle_root) signed by the Leader's secp256k1 key).
+		merkleRoot := keeper.ComputeReserveMerkleRoot(stEntries)
+		rootHash := sha256.Sum256(merkleRoot)
+		privKey := secp256k1.PrivKey(n.Config.WorkerPrivKey)
+		sig, err := privKey.Sign(rootHash[:])
+		if err != nil {
+			log.Printf("dispatch: reserve sign error (model=%s): %v", modelId, err)
+			continue
+		}
+
+		msg := settlementtypes.NewMsgBatchReserve(n.Config.WorkerAddr, merkleRoot, stEntries, sig)
+
+		hash, err := n.Chain.BroadcastBatchReserve(ctx, msg, n.Config.WorkerPrivKey, n.Config.WorkerAddr, n.Config.ChainID)
+		if err != nil {
+			log.Printf("dispatch: BatchReserve broadcast failed (model=%s, entries retained for retry): %v", modelId, err)
+			continue
+		}
+
+		l.CommitReservations(keys)
+		log.Printf("dispatch: BatchReserve confirmed tx=%s model=%s entries=%d", hash, modelId, len(entries))
 	}
 }
 

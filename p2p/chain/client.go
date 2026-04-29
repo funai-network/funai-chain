@@ -710,6 +710,91 @@ func (c *Client) BroadcastSettlement(ctx context.Context, msg *settlementtypes.M
 	return hash, nil
 }
 
+// BroadcastBatchReserve builds, signs, and broadcasts a MsgBatchReserve to
+// the chain. Activates KT 30-case Issue 1 keeper fix (PR #44) — the keeper
+// accepts MsgBatchReserve and freezes user balance per entry, but had no
+// emitter until now. Leader calls this periodically with all newly-accepted
+// per-request tasks since the last submission.
+//
+// Shares the BroadcastSettlement tx-build scaffolding; gas scales with entry
+// count (FreezeBalance is one state-read + one state-write per entry, plus
+// the proposer signature verify). Uses BroadcastTxConfirmed so the caller
+// only marks entries as reserved on confirmed inclusion — no silent
+// CheckTx-only false positive.
+func (c *Client) BroadcastBatchReserve(ctx context.Context, msg *settlementtypes.MsgBatchReserve, privKey []byte, fromAddr string, chainId string) (string, error) {
+	txCfg := c.getTxConfig()
+
+	accNum, seq, err := c.getNextSequence(ctx, fromAddr)
+	if err != nil {
+		return "", fmt.Errorf("get sequence: %w", err)
+	}
+
+	txBuilder := txCfg.NewTxBuilder()
+	if err := txBuilder.SetMsgs(msg); err != nil {
+		return "", fmt.Errorf("set msgs: %w", err)
+	}
+	// Per-entry gas: ~6k for FreezeBalance (state read + write) + sig overhead;
+	// 200k base; cap at block gas limit.
+	gasLimit := uint64(200000) + uint64(len(msg.Entries))*6000
+	const maxBlockGas = uint64(100_000_000)
+	if gasLimit > maxBlockGas {
+		gasLimit = maxBlockGas
+	}
+	txBuilder.SetGasLimit(gasLimit)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("ufai", sdkmath.NewInt(int64(gasLimit/200)))))
+
+	sdkPrivKey := &sdkcrypto.PrivKey{Key: privKey}
+	pubKey := sdkPrivKey.PubKey()
+
+	sigData := &signingtypes.SingleSignatureData{
+		SignMode:  signingtypes.SignMode_SIGN_MODE_DIRECT,
+		Signature: nil,
+	}
+	sig := signingtypes.SignatureV2{
+		PubKey:   pubKey,
+		Data:     sigData,
+		Sequence: seq,
+	}
+	if err := txBuilder.SetSignatures(sig); err != nil {
+		return "", fmt.Errorf("set empty sig: %w", err)
+	}
+
+	signerData := authsigning.SignerData{
+		ChainID:       chainId,
+		AccountNumber: accNum,
+		Sequence:      seq,
+	}
+	sigV2, err := clienttx.SignWithPrivKey(ctx,
+		signingtypes.SignMode_SIGN_MODE_DIRECT,
+		signerData, txBuilder, sdkPrivKey, txCfg, seq)
+	if err != nil {
+		return "", fmt.Errorf("sign tx: %w", err)
+	}
+	if err := txBuilder.SetSignatures(sigV2); err != nil {
+		return "", fmt.Errorf("set final sig: %w", err)
+	}
+
+	txBytes, err := txCfg.TxEncoder()(txBuilder.GetTx())
+	if err != nil {
+		return "", fmt.Errorf("encode tx: %w", err)
+	}
+
+	hash, err := c.BroadcastTxConfirmed(ctx, txBytes, DefaultConfirmTimeout)
+	if err != nil {
+		if strings.Contains(err.Error(), "sequence") {
+			log.Printf("chain: batch-reserve sequence mismatch, resetting")
+			c.ResetSequence()
+		}
+		// KT Issue 3 caveat: non-empty hash + err means broadcast accepted
+		// but tx did not finalize. Caller should leave entries unreserved
+		// for retry on next reserveLoop tick.
+		return hash, err
+	}
+
+	log.Printf("chain: BatchReserve tx confirmed hash=%s entries=%d gas=%d seq=%d", hash, len(msg.Entries), gasLimit, seq)
+	return hash, nil
+}
+
 // BroadcastAuditBatch builds, signs, and broadcasts a
 // MsgSecondVerificationResultBatch (D2 / issue #9). Shares the tx-build
 // scaffolding with BroadcastSettlement — only the msg and gas scaling
