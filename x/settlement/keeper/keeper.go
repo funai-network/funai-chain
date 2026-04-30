@@ -1027,30 +1027,44 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 			if ia.Balance.IsLT(actualFee) {
 				continue // REFUNDED
 			}
-			ia.Balance = ia.Balance.Sub(actualFee)
-			k.SetInferenceAccount(ctx, ia)
 
-			k.distributeSuccessFee(ctx, actualFee, workerAddr, entry.VerifierResults, params)
+			// Issue H: per-entry CacheContext so a SendCoins failure inside
+			// distributeSuccessFee rolls back the user-balance debit + every
+			// associated bookkeeping write for THIS entry. Other entries in
+			// the batch are unaffected. Without this, a single blocked
+			// recipient address would silently strand the user's payment in
+			// the module account.
+			cacheCtx, writeFn := ctx.CacheContext()
+
+			ia.Balance = ia.Balance.Sub(actualFee)
+			k.SetInferenceAccount(cacheCtx, ia)
+
+			if err := k.distributeSuccessFee(cacheCtx, actualFee, workerAddr, entry.VerifierResults, params); err != nil {
+				k.logger.Error("distributeSuccessFee failed, entry skipped",
+					"task_id", fmt.Sprintf("%x", entry.TaskId),
+					"err", err.Error())
+				continue
+			}
 
 			if k.workerKeeper != nil {
-				k.workerKeeper.IncrementSuccessStreak(ctx, workerAddr)
-				if k.workerKeeper.GetSuccessStreak(ctx, workerAddr) >= 50 {
-					k.ResetDishonestCount(ctx, workerAddr)
+				k.workerKeeper.IncrementSuccessStreak(cacheCtx, workerAddr)
+				if k.workerKeeper.GetSuccessStreak(cacheCtx, workerAddr) >= 50 {
+					k.ResetDishonestCount(cacheCtx, workerAddr)
 				}
-				k.workerKeeper.UpdateWorkerStats(ctx, workerAddr, actualFee)
+				k.workerKeeper.UpdateWorkerStats(cacheCtx, workerAddr, actualFee)
 				// Audit KT §3: successful settlement → reputation boost
-				k.workerKeeper.ReputationOnAccept(ctx, workerAddr)
+				k.workerKeeper.ReputationOnAccept(cacheCtx, workerAddr)
 				// Audit KT §5: update average latency from settlement data
 				if entry.LatencyMs > 0 {
-					k.workerKeeper.UpdateAvgLatency(ctx, workerAddr, uint32(entry.LatencyMs))
+					k.workerKeeper.UpdateAvgLatency(cacheCtx, workerAddr, uint32(entry.LatencyMs))
 				}
 			}
 
 			if k.modelRegKeeper != nil && entry.ModelId != "" {
-				k.modelRegKeeper.RecordModelTask(ctx, entry.ModelId, actualFee.Amount.Uint64(), entry.LatencyMs)
+				k.modelRegKeeper.RecordModelTask(cacheCtx, entry.ModelId, actualFee.Amount.Uint64(), entry.LatencyMs)
 			}
 
-			k.SetSettledTask(ctx, types.SettledTaskID{
+			k.SetSettledTask(cacheCtx, types.SettledTaskID{
 				TaskId:            entry.TaskId,
 				Status:            types.TaskSettled,
 				ExpireBlock:       entry.ExpireBlock,
@@ -1060,6 +1074,8 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 				Fee:               actualFee,
 				UserAddress:       entry.UserAddress,
 			})
+
+			writeFn()
 			successCount++
 			totalFees = totalFees.Add(actualFee.Amount)
 		} else {
@@ -1071,9 +1087,24 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 				failFee := actualFee.Amount.MulRaw(int64(params.FailSettlementFeeRatio)).QuoRaw(1000)
 				failCoin := sdk.NewCoin(types.DefaultDenom, failFee)
 				if ia.Balance.IsGTE(failCoin) && failCoin.IsPositive() {
-					ia.Balance = ia.Balance.Sub(failCoin)
-					k.SetInferenceAccount(ctx, ia)
-					k.distributeFailFee(ctx, failCoin, entry.VerifierResults, params)
+					// Issue H: roll back the user-debit + verifier payouts on
+					// SendCoins failure. The SettledTask + JailWorker writes
+					// below are intentionally outside the cache — per the
+					// pre-existing semantic that a per-token FAIL marks the
+					// task settled and jails the worker even when the user
+					// cannot pay the fail fee. This preserves that behavior
+					// in the SendCoins-failure case as well.
+					payCtx, payWrite := ctx.CacheContext()
+					iaPay := ia
+					iaPay.Balance = iaPay.Balance.Sub(failCoin)
+					k.SetInferenceAccount(payCtx, iaPay)
+					if err := k.distributeFailFee(payCtx, failCoin, entry.VerifierResults, params); err != nil {
+						k.logger.Error("distributeFailFee failed (per-token), payment skipped (task still settled+jailed)",
+							"task_id", fmt.Sprintf("%x", entry.TaskId),
+							"err", err.Error())
+					} else {
+						payWrite()
+					}
 				}
 
 				k.SetSettledTask(ctx, types.SettledTaskID{
@@ -1094,16 +1125,25 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 				if ia.Balance.IsLT(failFee) {
 					continue
 				}
+
+				// Issue H: per-entry CacheContext mirrors the SUCCESS branch.
+				cacheCtx, writeFn := ctx.CacheContext()
+
 				ia.Balance = ia.Balance.Sub(failFee)
-				k.SetInferenceAccount(ctx, ia)
+				k.SetInferenceAccount(cacheCtx, ia)
 
-				k.distributeFailFee(ctx, failFee, entry.VerifierResults, params)
-
-				if k.workerKeeper != nil {
-					k.workerKeeper.JailWorker(ctx, workerAddr, 0)
+				if err := k.distributeFailFee(cacheCtx, failFee, entry.VerifierResults, params); err != nil {
+					k.logger.Error("distributeFailFee failed (per-request), entry skipped",
+						"task_id", fmt.Sprintf("%x", entry.TaskId),
+						"err", err.Error())
+					continue
 				}
 
-				k.SetSettledTask(ctx, types.SettledTaskID{
+				if k.workerKeeper != nil {
+					k.workerKeeper.JailWorker(cacheCtx, workerAddr, 0)
+				}
+
+				k.SetSettledTask(cacheCtx, types.SettledTaskID{
 					TaskId:            entry.TaskId,
 					Status:            types.TaskFailSettled,
 					ExpireBlock:       entry.ExpireBlock,
@@ -1111,6 +1151,8 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 					WorkerAddress:     entry.WorkerAddress,
 					OriginalVerifiers: verifierAddrs,
 				})
+
+				writeFn()
 			}
 			failCount++
 			totalFees = totalFees.Add(actualFee.Amount)
@@ -1178,7 +1220,13 @@ func dedupVerifierResults(verifiers []types.VerifierResult) []types.VerifierResu
 // KT Issue 8: verifiers list is dedup'd by bech32 address before splitting
 // the verifier pool, so a malformed entry with a duplicated verifier cannot
 // double-pay one address.
-func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr sdk.AccAddress, verifiers []types.VerifierResult, params types.Params) {
+//
+// Issue H (non-state-machine findings 2026-04-30): SendCoins errors propagate
+// up so the caller can wrap the entry in a CacheContext and skip the entry
+// atomically on payout failure. Pre-fix the errors were silently dropped, so
+// a blocked recipient address could leave the user debited but the worker /
+// verifier unpaid — silent value leakage into the module account.
+func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr sdk.AccAddress, verifiers []types.VerifierResult, params types.Params) error {
 	totalVerifierAmount := fee.Amount.MulRaw(int64(params.VerifierFeeRatio)).QuoRaw(1000)
 	auditFundAmount := fee.Amount.MulRaw(int64(params.MultiVerificationFundRatio)).QuoRaw(1000)
 
@@ -1199,7 +1247,9 @@ func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr s
 			vCoin := sdk.NewCoin(fee.Denom, amount)
 			if vCoin.IsPositive() {
 				coins := sdk.NewCoins(vCoin)
-				_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, vAddr, coins)
+				if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, vAddr, coins); err != nil {
+					return fmt.Errorf("send to verifier %s: %w", v.Address, err)
+				}
 				k.IncrementVerifierEpochFee(ctx, v.Address, amount)
 			}
 			verifierDistributed = verifierDistributed.Add(amount)
@@ -1210,8 +1260,11 @@ func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr s
 	executorCoin := sdk.NewCoin(fee.Denom, executorAmount)
 	if executorCoin.IsPositive() {
 		coins := sdk.NewCoins(executorCoin)
-		_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, workerAddr, coins)
+		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, workerAddr, coins); err != nil {
+			return fmt.Errorf("send to worker %s: %w", workerAddr, err)
+		}
 	}
+	return nil
 }
 
 // distributeFailFee distributes FAIL task fee (15% of original): verifiers 12% + multi-verification fund 3%.
@@ -1220,7 +1273,10 @@ func (k Keeper) distributeSuccessFee(ctx sdk.Context, fee sdk.Coin, workerAddr s
 //
 // KT Issue 8: same dedup as distributeSuccessFee — duplicate verifier rows
 // cannot double-pay one address.
-func (k Keeper) distributeFailFee(ctx sdk.Context, failFee sdk.Coin, verifiers []types.VerifierResult, params types.Params) {
+//
+// Issue H: returns error so caller can roll back via CacheContext (see
+// distributeSuccessFee comment).
+func (k Keeper) distributeFailFee(ctx sdk.Context, failFee sdk.Coin, verifiers []types.VerifierResult, params types.Params) error {
 	uniqueVerifiers := dedupVerifierResults(verifiers)
 	if len(uniqueVerifiers) > 0 {
 		totalVerifierRatio := params.VerifierFeeRatio
@@ -1241,7 +1297,9 @@ func (k Keeper) distributeFailFee(ctx sdk.Context, failFee sdk.Coin, verifiers [
 			vCoin := sdk.NewCoin(failFee.Denom, amount)
 			if vCoin.IsPositive() {
 				coins := sdk.NewCoins(vCoin)
-				_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, vAddr, coins)
+				if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, vAddr, coins); err != nil {
+					return fmt.Errorf("send to verifier %s: %w", v.Address, err)
+				}
 				k.IncrementVerifierEpochFee(ctx, v.Address, amount)
 			}
 			distributed = distributed.Add(amount)
@@ -1249,6 +1307,7 @@ func (k Keeper) distributeFailFee(ctx sdk.Context, failFee sdk.Coin, verifiers [
 	}
 	// Remaining (multi-verification-fund portion = 3/15 of failFee) stays in module account,
 	// distributed per-epoch via DistributeMultiVerificationFund in EndBlocker.
+	return nil
 }
 
 // DistributeMultiVerificationFund distributes accumulated audit fund to second_verifiers at epoch boundary.
@@ -1326,7 +1385,18 @@ func (k Keeper) DistributeMultiVerificationFund(ctx sdk.Context, epoch int64) {
 		}
 		coin := sdk.NewCoin("ufai", amount)
 		if coin.IsPositive() {
-			_ = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, addr, sdk.NewCoins(coin))
+			// Issue H: per-recipient SendCoins failures are logged and skipped
+			// (rather than failing the whole epoch sweep). Unlike per-entry
+			// distribute*Fee paths, there is no caller above us to roll back
+			// against, and silently ignoring the error (the pre-fix behavior)
+			// gave operators no signal that some second_verifier was unpayable.
+			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, addr, sdk.NewCoins(coin)); err != nil {
+				k.logger.Error("multi-verification-fund payout failed",
+					"second_verifier", vAddr,
+					"amount", coin.String(),
+					"err", err.Error())
+				continue
+			}
 			k.IncrementSecondVerifierEpochFee(ctx, vAddr, amount)
 			distributed++
 			distributedTotal = distributedTotal.Add(amount)
@@ -1558,6 +1628,17 @@ func (k Keeper) ProcessSecondVerificationResult(ctx sdk.Context, msg *types.MsgS
 	} else {
 		if uint32(len(ar.SecondVerifierAddresses)) >= params.SecondVerifierCount {
 			return nil
+		}
+		// Issue C residual: reject duplicate submission from the same
+		// second_verifier. Without this check a single second_verifier could
+		// inflate their epoch reward count and skew the audit majority by
+		// submitting two PASS rows on the same task. The P2-7 loop above only
+		// guards against original verifiers (conflict of interest); it does
+		// not catch a clean second_verifier submitting twice.
+		for _, existing := range ar.SecondVerifierAddresses {
+			if existing == msg.SecondVerifier {
+				return fmt.Errorf("second_verifier %s already submitted a result for task %x, duplicate rejected", msg.SecondVerifier, msg.TaskId)
+			}
 		}
 		ar.SecondVerifierAddresses = append(ar.SecondVerifierAddresses, msg.SecondVerifier)
 		ar.Results = append(ar.Results, msg.Pass)
@@ -1894,16 +1975,31 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 		if ia.Balance.IsLT(chargeAmount) && chargeAmount.IsPositive() {
 			return false
 		}
-		ia.Balance = ia.Balance.Sub(chargeAmount)
-		k.SetInferenceAccount(ctx, ia)
-		k.distributeSuccessFee(ctx, baseFee, workerAddr, verifiers, params)
 
-		if k.workerKeeper != nil {
-			k.workerKeeper.IncrementSuccessStreak(ctx, workerAddr)
-			k.workerKeeper.UpdateWorkerStats(ctx, workerAddr, baseFee)
+		// Issue H: per-call CacheContext so a SendCoins failure inside
+		// distributeSuccessFee rolls back the balance debit + worker stats +
+		// SettledTask write, and we return false so the pending entry is
+		// preserved for HandleSecondVerificationTimeouts to retry. If the
+		// recipient is permanently blocked, the orphan-recovery sweep at
+		// `HandleSecondVerificationTimeouts` will eventually force-terminal
+		// the entry (line ~2195) — no infinite-retry liability.
+		cacheCtx, writeFn := ctx.CacheContext()
+
+		ia.Balance = ia.Balance.Sub(chargeAmount)
+		k.SetInferenceAccount(cacheCtx, ia)
+		if err := k.distributeSuccessFee(cacheCtx, baseFee, workerAddr, verifiers, params); err != nil {
+			k.logger.Error("distributeSuccessFee failed in settleAuditedTask, returning false for retry",
+				"task_id", fmt.Sprintf("%x", apt.TaskId),
+				"err", err.Error())
+			return false
 		}
 
-		k.SetSettledTask(ctx, types.SettledTaskID{
+		if k.workerKeeper != nil {
+			k.workerKeeper.IncrementSuccessStreak(cacheCtx, workerAddr)
+			k.workerKeeper.UpdateWorkerStats(cacheCtx, workerAddr, baseFee)
+		}
+
+		k.SetSettledTask(cacheCtx, types.SettledTaskID{
 			TaskId:            apt.TaskId,
 			Status:            types.TaskSettled,
 			ExpireBlock:       apt.ExpireBlock,
@@ -1911,6 +2007,8 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 			WorkerAddress:     apt.WorkerAddress,
 			OriginalVerifiers: apt.VerifierAddresses,
 		})
+
+		writeFn()
 		return true
 	}
 
@@ -1918,15 +2016,24 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 	if ia.Balance.IsLT(failFee) && failFee.IsPositive() {
 		return false
 	}
-	ia.Balance = ia.Balance.Sub(failFee)
-	k.SetInferenceAccount(ctx, ia)
-	k.distributeFailFee(ctx, failFee, verifiers, params)
 
-	if k.workerKeeper != nil {
-		k.workerKeeper.JailWorker(ctx, workerAddr, 0)
+	// Issue H: same CacheContext pattern as the success branch above.
+	cacheCtx, writeFn := ctx.CacheContext()
+
+	ia.Balance = ia.Balance.Sub(failFee)
+	k.SetInferenceAccount(cacheCtx, ia)
+	if err := k.distributeFailFee(cacheCtx, failFee, verifiers, params); err != nil {
+		k.logger.Error("distributeFailFee failed in settleAuditedTask, returning false for retry",
+			"task_id", fmt.Sprintf("%x", apt.TaskId),
+			"err", err.Error())
+		return false
 	}
 
-	k.SetSettledTask(ctx, types.SettledTaskID{
+	if k.workerKeeper != nil {
+		k.workerKeeper.JailWorker(cacheCtx, workerAddr, 0)
+	}
+
+	k.SetSettledTask(cacheCtx, types.SettledTaskID{
 		TaskId:            apt.TaskId,
 		Status:            types.TaskFailSettled,
 		ExpireBlock:       apt.ExpireBlock,
@@ -1934,6 +2041,8 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 		WorkerAddress:     apt.WorkerAddress,
 		OriginalVerifiers: apt.VerifierAddresses,
 	})
+
+	writeFn()
 	return true
 }
 
