@@ -47,6 +47,13 @@ func runFraudProofWithPubkeyFormat(t *testing.T, label, pubkeyOverride string) {
 
 	workerAddr := makeAddr("kt-i4-fraud-worker")
 	taskId := []byte("kt-i4-fraud-task-001")
+	// PR #50 (Issue 5.2): chain footprint required.
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskId,
+		Status:        types.TaskSettled,
+		WorkerAddress: workerAddr.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
 
 	contentHash, contentSig := signFraudContent(t, []byte("content"))
 	msg := &types.MsgFraudProof{

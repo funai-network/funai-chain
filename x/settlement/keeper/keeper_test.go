@@ -611,6 +611,15 @@ func TestProcessFraudProof_Success(t *testing.T) {
 
 	workerAddr := makeAddr("worker1")
 	taskId := []byte("fraud-proof-task-01")
+	// PR #50 (Issue 5.2): chain footprint required. Seed a SettledTask record
+	// matching this worker so ProcessFraudProof finds it (and 5.3 worker-binding
+	// passes since msg.WorkerAddress == settledTask.WorkerAddress).
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskId,
+		Status:        types.TaskSettled,
+		WorkerAddress: workerAddr.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
 
 	contentHash, contentSig := signFraudContent(t, []byte("content"))
 	msg := &types.MsgFraudProof{
@@ -1432,11 +1441,21 @@ func TestMsgServer_SubmitFraudProof(t *testing.T) {
 	k, ctx, _, _ := setupKeeper(t)
 	ms := keeper.NewMsgServerImpl(k)
 
+	taskId := []byte("fraud-msg-task-0001")
+	worker := makeAddr("worker1")
+	// PR #50 (Issue 5.2): chain footprint required.
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskId,
+		Status:        types.TaskSettled,
+		WorkerAddress: worker.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
+
 	contentHash, contentSig := signFraudContent(t, []byte("content"))
 	msg := &types.MsgFraudProof{
 		Reporter:         makeAddr("reporter").String(),
-		TaskId:           []byte("fraud-msg-task-0001"),
-		WorkerAddress:    makeAddr("worker1").String(),
+		TaskId:           taskId,
+		WorkerAddress:    worker.String(),
 		ContentHash:      contentHash,
 		WorkerContentSig: contentSig,
 		ActualContent:    []byte("content"),
