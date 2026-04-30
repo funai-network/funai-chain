@@ -226,9 +226,10 @@ func TestUpdateModelStats_TriggersActivation(t *testing.T) {
 	k.SetModel(ctx, model)
 
 	auth := sdk.AccAddress([]byte("authority___________"))
+	_ = auth
 
 	// Update to just below threshold → should not activate
-	msg := types.NewMsgUpdateModelStats(auth.String(), "stats_activation", 0.5, 3, 3)
+	msg := types.NewMsgUpdateModelStats(testGovAuthority, "stats_activation", 0.5, 3, 3)
 	_, _ = msgServer.UpdateModelStats(ctx, msg)
 	m, _ := k.GetModel(ctx, "stats_activation")
 	if m.Status == types.ModelStatusActive {
@@ -236,7 +237,7 @@ func TestUpdateModelStats_TriggersActivation(t *testing.T) {
 	}
 
 	// Update to meet thresholds → should activate
-	msg = types.NewMsgUpdateModelStats(auth.String(), "stats_activation", 0.8, 5, 5)
+	msg = types.NewMsgUpdateModelStats(testGovAuthority, "stats_activation", 0.8, 5, 5)
 	_, _ = msgServer.UpdateModelStats(ctx, msg)
 	m, _ = k.GetModel(ctx, "stats_activation")
 	if m.Status != types.ModelStatusActive {

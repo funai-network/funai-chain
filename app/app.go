@@ -285,6 +285,9 @@ func NewFunAIApp(
 		appCodec,
 		keys[modelregtypes.StoreKey],
 		app.WorkerKeeper,
+		// KT Issue 16: gate MsgUpdateModelStats by governance authority so
+		// arbitrary callers cannot manipulate model activation state.
+		authtypes.NewModuleAddress("gov").String(),
 		logger,
 	)
 

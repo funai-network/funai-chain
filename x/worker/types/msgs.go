@@ -6,6 +6,8 @@ import (
 	sdkerrors "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/gogoproto/proto"
+
+	settlementtypes "github.com/funai-wiki/funai-chain/x/settlement/types"
 )
 
 func init() {
@@ -69,6 +71,18 @@ func (msg *MsgRegisterWorker) ValidateBasic() error {
 	}
 	if msg.Pubkey == "" {
 		return sdkerrors.Wrap(ErrInvalidModels, "pubkey cannot be empty")
+	}
+	// KT Issue 14: pre-fix only checked non-empty. A worker could register
+	// with `Pubkey="garbage"`; downstream sig-verify paths (FraudProof, D2
+	// audit batch, Proposer signature) accept the registration as a valid
+	// participant but fail on every signed-message check, allowing the
+	// worker to occupy committee slots while contributing zero — a low-cost
+	// grief attack. Route through the canonical decoder so any of the three
+	// accepted formats (raw 33 bytes-as-string, hex, base64) is OK and
+	// anything else is rejected at registration time.
+	if settlementtypes.DecodeWorkerPubkey(msg.Pubkey) == nil {
+		return sdkerrors.Wrap(ErrInvalidModels,
+			"pubkey is not a valid 33-byte secp256k1 compressed key (raw/hex/base64)")
 	}
 	if len(msg.SupportedModels) == 0 {
 		return sdkerrors.Wrap(ErrInvalidModels, "at least one supported model is required")

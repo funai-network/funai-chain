@@ -11,4 +11,5 @@ var (
 	ErrModelCannotServe          = errors.Register(ModuleName, 7, "model cannot serve: installed stake ratio below service threshold")
 	ErrInvalidAlias              = errors.Register(ModuleName, 8, "invalid alias")
 	ErrAliasAlreadyTaken         = errors.Register(ModuleName, 9, "alias already taken")
+	ErrUnauthorized              = errors.Register(ModuleName, 10, "unauthorized: msg.Authority does not match governance authority")
 )
