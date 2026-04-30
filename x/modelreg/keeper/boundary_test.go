@@ -20,6 +20,7 @@ func TestModelLifecycle_ProposedToActiveToServiceStopped(t *testing.T) {
 	k, ctx, _ := setupModelregKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 	auth := sdk.AccAddress([]byte("authority___________"))
+	_ = auth
 
 	model := types.Model{
 		ModelId:        "lifecycle_model",
@@ -31,7 +32,7 @@ func TestModelLifecycle_ProposedToActiveToServiceStopped(t *testing.T) {
 	k.SetModel(ctx, model)
 
 	// Step 1: Activate via stats meeting thresholds
-	msg := types.NewMsgUpdateModelStats(auth.String(), "lifecycle_model", 0.8, 5, 5)
+	msg := types.NewMsgUpdateModelStats(testGovAuthority, "lifecycle_model", 0.8, 5, 5)
 	_, err := msgServer.UpdateModelStats(ctx, msg)
 	if err != nil {
 		t.Fatalf("UpdateModelStats failed: %v", err)
@@ -49,7 +50,7 @@ func TestModelLifecycle_ProposedToActiveToServiceStopped(t *testing.T) {
 	// but the event should fire — we just verify no panic
 
 	// Step 3: Stats drop below activation → model stays active (already activated)
-	msg = types.NewMsgUpdateModelStats(auth.String(), "lifecycle_model", 0.3, 2, 2)
+	msg = types.NewMsgUpdateModelStats(testGovAuthority, "lifecycle_model", 0.3, 2, 2)
 	_, _ = msgServer.UpdateModelStats(ctx, msg)
 	m, _ = k.GetModel(ctx, "lifecycle_model")
 	// Already-active model stays active per CheckAndActivateModel logic

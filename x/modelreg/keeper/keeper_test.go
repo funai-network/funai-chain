@@ -66,11 +66,18 @@ func setupModelregKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockWorkerK
 		operatorIds: make(map[string]string),
 		totalStake:  math.ZeroInt(),
 	}
-	k := keeper.NewKeeper(cdc, storeKey, wk, log.NewNopLogger())
+	// KT Issue 16: tests pass a deterministic authority string so the
+	// MsgUpdateModelStats authority-gate path can be exercised without
+	// depending on the live gov module address.
+	k := keeper.NewKeeper(cdc, storeKey, wk, testGovAuthority, log.NewNopLogger())
 	ctx := sdk.NewContext(stateStore, cmtproto.Header{Height: 100}, false, log.NewNopLogger())
 	k.SetParams(ctx, types.DefaultParams())
 	return k, ctx, wk
 }
+
+// testGovAuthority is the bech32-shaped string used as the modelreg keeper
+// authority in tests. Production wiring uses authtypes.NewModuleAddress("gov").
+const testGovAuthority = "cosmos1modelreg-test-authority"
 
 func TestModelCRUD(t *testing.T) {
 	k, ctx, _ := setupModelregKeeper(t)
@@ -630,7 +637,8 @@ func TestUpdateModelStats(t *testing.T) {
 	k.SetModel(ctx, model)
 
 	auth := sdk.AccAddress([]byte("authority___________"))
-	msg := types.NewMsgUpdateModelStats(auth.String(), "stats_test", 0.8, 5, 5)
+	_ = auth
+	msg := types.NewMsgUpdateModelStats(testGovAuthority, "stats_test", 0.8, 5, 5)
 
 	_, err := msgServer.UpdateModelStats(ctx, msg)
 	if err != nil {
@@ -654,7 +662,8 @@ func TestUpdateModelStats_NotFound(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	auth := sdk.AccAddress([]byte("authority___________"))
-	msg := types.NewMsgUpdateModelStats(auth.String(), "nonexistent", 0.5, 2, 2)
+	_ = auth
+	msg := types.NewMsgUpdateModelStats(testGovAuthority, "nonexistent", 0.5, 2, 2)
 
 	_, err := msgServer.UpdateModelStats(ctx, msg)
 	if err == nil {

@@ -30,6 +30,12 @@ type Keeper struct {
 	storeKey     storetypes.StoreKey
 	workerKeeper WorkerKeeper
 	logger       log.Logger
+
+	// authority is the bech32 address allowed to mutate model state via
+	// MsgUpdateModelStats. Mirrors the pattern in x/settlement and x/reward.
+	// Set to authtypes.NewModuleAddress("gov") at app.go wiring time so any
+	// stats / activation update goes through governance.
+	authority string
 }
 
 // NewKeeper creates a new modelreg module Keeper.
@@ -37,14 +43,23 @@ func NewKeeper(
 	cdc codec.BinaryCodec,
 	storeKey storetypes.StoreKey,
 	workerKeeper WorkerKeeper,
+	authority string,
 	logger log.Logger,
 ) Keeper {
 	return Keeper{
 		cdc:          cdc,
 		storeKey:     storeKey,
 		workerKeeper: workerKeeper,
+		authority:    authority,
 		logger:       logger.With("module", "x/"+types.ModuleName),
 	}
+}
+
+// GetAuthority returns the bech32 address of the module's governance authority.
+// KT Issue 16: UpdateModelStats handler compares msg.Authority against this
+// to gate model-state mutation behind governance.
+func (k Keeper) GetAuthority() string {
+	return k.authority
 }
 
 func (k Keeper) Logger() log.Logger {
@@ -149,13 +164,43 @@ func (k Keeper) GetParams(ctx sdk.Context) types.Params {
 
 // -------- Business Logic --------
 
-// ComputeModelId derives model_id = SHA256(weight_hash || quant_config_hash || runtime_image_hash).
+// ComputeModelId derives model_id from the three component hashes.
+//
+// KT 30-case (modelreg #9 / unified-test-report Issue 16): pre-fix the
+// implementation just concatenated the three strings into the hasher with no
+// separator. Variable-length inputs allowed boundary collisions:
+//
+//	ComputeModelId("ABC", "DE", "FG")  ==  ComputeModelId("AB", "CDE", "FG")
+//
+// An attacker could submit a model proposal with carefully shifted boundaries
+// to land on the same model_id as a different (W, Q, R) tuple — a 2nd-preimage
+// attack via boundary engineering, much cheaper than 2^256 brute force.
+//
+// Fix: prefix each field with its byte length (8-byte big-endian uint64) so
+// the boundaries between fields are unambiguous. Length-prefixing is preferred
+// over a single-byte sentinel because the input strings could in principle
+// contain that byte; an explicit length is collision-proof.
+//
+// This changes the hash output for ALL inputs vs the pre-fix function. The
+// chain has not yet shipped a mainnet, so no migration is needed; any model
+// already registered on a local testnet will need to be re-registered.
 func ComputeModelId(weightHash, quantConfigHash, runtimeImageHash string) string {
 	h := sha256.New()
-	h.Write([]byte(weightHash))
-	h.Write([]byte(quantConfigHash))
-	h.Write([]byte(runtimeImageHash))
+	writeLenPrefixed(h, weightHash)
+	writeLenPrefixed(h, quantConfigHash)
+	writeLenPrefixed(h, runtimeImageHash)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// writeLenPrefixed writes 8-byte big-endian length followed by the field
+// bytes, so adjacent variable-length fields cannot have ambiguous boundaries.
+func writeLenPrefixed(h interface{ Write([]byte) (int, error) }, s string) {
+	var lenBuf [8]byte
+	for i := 0; i < 8; i++ {
+		lenBuf[7-i] = byte(uint64(len(s)) >> (8 * i))
+	}
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write([]byte(s))
 }
 
 // CheckAndActivateModel evaluates activation thresholds and transitions a model

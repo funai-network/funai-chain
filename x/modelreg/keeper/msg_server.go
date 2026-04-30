@@ -74,6 +74,18 @@ func (m msgServer) ProposeModel(goCtx context.Context, msg *types.MsgModelPropos
 func (m msgServer) UpdateModelStats(goCtx context.Context, msg *types.MsgUpdateModelStats) (*types.MsgUpdateModelStatsResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	// KT Issue 16: gate by governance authority. Pre-fix the handler did not
+	// validate msg.Authority at all — any account with a valid bech32 address
+	// could call MsgUpdateModelStats and overwrite InstalledStakeRatio /
+	// WorkerCount / OperatorCount, then trigger CheckAndActivateModel with
+	// the manipulated values. Effect: anyone could activate or deactivate
+	// arbitrary models. The Authority field was already in the msg shape
+	// (only ValidateBasic'd for bech32 syntax), so the gate goes here.
+	if m.GetAuthority() != "" && msg.Authority != m.GetAuthority() {
+		return nil, sdkerrors.Wrapf(types.ErrUnauthorized,
+			"invalid authority: expected %s, got %s", m.GetAuthority(), msg.Authority)
+	}
+
 	model, found := m.GetModel(ctx, msg.ModelId)
 	if !found {
 		return nil, types.ErrModelNotFound
