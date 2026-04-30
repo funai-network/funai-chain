@@ -125,7 +125,3 @@ docs/              -- Design documents and guides
 ## License
 
 TBD
-
-## Links
-
-- GitHub: [https://github.com/funai-wiki/funai-chain](https://github.com/funai-wiki/funai-chain)

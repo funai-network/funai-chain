@@ -1350,6 +1350,10 @@ func (k Keeper) DistributeMultiVerificationFund(ctx sdk.Context, epoch int64) {
 //   - FraudProof after settlement → recover Worker's executor-fee share (ExecutorFeeRatio,
 //     currently 850/1000 = 85% post PR #2) + refund to user → slash 5% → tombstone.
 func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) error {
+	// KT Issue 5.5: idempotent on duplicate. The early-out also doubles as
+	// terminal-state enforcement for Issue 5.4 — once a task is fraud-marked,
+	// any subsequent ProcessFraudProof / settle / audit on this task_id sees
+	// the mark and returns without further state change.
 	if k.HasFraudMark(ctx, msg.TaskId) {
 		return types.ErrFraudMarked
 	}
@@ -1357,6 +1361,51 @@ func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) err
 	workerAddr, addrErr := sdk.AccAddressFromBech32(msg.WorkerAddress)
 	if addrErr != nil {
 		return sdkerrors.Wrap(addrErr, "invalid worker address")
+	}
+
+	// KT Issue 5.2: require the task have SOME chain footprint before slashing
+	// the worker. Pre-fix, any random taskId could be paired with a captured
+	// (ContentHash, sig) pair (Issue 5.1) AND a registered worker address
+	// (Issue 5.3) to slash that worker. Even with 5.1 + 5.3 closed, slashing
+	// for a totally-fictional taskId remains unsound: the chain has no record
+	// the task ever happened.
+	//
+	// Acceptable footprints (any one):
+	//   1. SettledTask record       — task was already settled / pending-audit
+	//   2. SecondVerificationPending — task is mid-audit (2nd or 3rd tier)
+	//   3. FrozenBalanceKey         — chain-side reservation (per-token freeze
+	//                                  via MsgRequestQuote, or per-request
+	//                                  freeze via MsgBatchReserve / PR #44+#45)
+	//
+	// If none of these exist, the task is unknown to the chain and the fraud
+	// claim cannot be honored.
+	settledTask, settledFound := k.GetSettledTask(ctx, msg.TaskId)
+	hasPending := false
+	if !settledFound {
+		if _, found := k.GetSecondVerificationPending(ctx, msg.TaskId); found {
+			hasPending = true
+		}
+	}
+	hasFrozen := false
+	if !settledFound && !hasPending {
+		store := ctx.KVStore(k.storeKey)
+		if store.Has(types.FrozenBalanceKey(msg.TaskId)) {
+			hasFrozen = true
+		}
+	}
+	if !settledFound && !hasPending && !hasFrozen {
+		return fmt.Errorf("FraudProof: taskId %x has no chain footprint (no SettledTask, no pending audit, no reservation)", msg.TaskId)
+	}
+
+	// KT Issue 5.3: when a SettledTask exists, msg.WorkerAddress MUST match
+	// the worker recorded on-chain for that task. Pre-fix, any registered
+	// worker address could be slashed by quoting an unrelated worker's task.
+	// Pre-settle fraud (settledTask not yet present) cannot enforce this
+	// constraint by definition; the WorkerContentSig + chain footprint
+	// checks above are the available evidence in that window.
+	if settledFound && settledTask.WorkerAddress != "" && settledTask.WorkerAddress != msg.WorkerAddress {
+		return fmt.Errorf("FraudProof: msg.WorkerAddress %s does not match settled task's worker %s",
+			msg.WorkerAddress, settledTask.WorkerAddress)
 	}
 
 	// KT Issue 5: bind ActualContent to ContentHash before trusting either.
@@ -1401,22 +1450,23 @@ func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) err
 
 	reporterAddr, _ := sdk.AccAddressFromBech32(msg.Reporter)
 
-	st, found := k.GetSettledTask(ctx, msg.TaskId)
-	if found && st.Status == types.TaskSettled {
-		st.Status = types.TaskFraud
-		k.SetSettledTask(ctx, st)
+	// Reuse the settledTask / settledFound captured during footprint+binding
+	// checks above. Only the post-settlement clawback path needs them.
+	if settledFound && settledTask.Status == types.TaskSettled {
+		settledTask.Status = types.TaskFraud
+		k.SetSettledTask(ctx, settledTask)
 
 		// M2: recover the executor-fee share (ExecutorFeeRatio, 850/1000 = 85% post PR #2)
 		// already distributed to Worker. Claw back from Worker and refund to user.
-		if st.Fee.IsPositive() {
+		if settledTask.Fee.IsPositive() {
 			params := k.GetParams(ctx)
-			executorAmount := st.Fee.Amount.MulRaw(int64(params.ExecutorFeeRatio)).QuoRaw(1000)
-			clawbackCoin := sdk.NewCoin(st.Fee.Denom, executorAmount)
+			executorAmount := settledTask.Fee.Amount.MulRaw(int64(params.ExecutorFeeRatio)).QuoRaw(1000)
+			clawbackCoin := sdk.NewCoin(settledTask.Fee.Denom, executorAmount)
 			if clawbackCoin.IsPositive() {
 				// Refund to original user if available, otherwise to reporter
 				refundAddr := reporterAddr
-				if st.UserAddress != "" {
-					if userAddr, err := sdk.AccAddressFromBech32(st.UserAddress); err == nil {
+				if settledTask.UserAddress != "" {
+					if userAddr, err := sdk.AccAddressFromBech32(settledTask.UserAddress); err == nil {
 						refundAddr = userAddr
 					}
 				}
@@ -1781,6 +1831,15 @@ func (k Keeper) processAuditJudgment(ctx sdk.Context, ar types.SecondVerificatio
 // can retry. Without this contract the task is orphaned: pending deleted, settled never
 // written, no retry handle on chain. (KT 30-case Issue 2, audit retry-handle bug.)
 func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationPendingTask, asSuccess bool, alreadyPaidFail bool, params types.Params, overrideOutputTokens uint32) bool {
+	// KT Issue 5.4: fraud is terminal. If a FraudProof has marked this task,
+	// no late-arriving audit result may settle it. The Issue 2 contract still
+	// holds — caller deletes pending only on `true`; here we return `true`
+	// because the terminal state has been reached (just by FraudProof, not
+	// by us), so the pending entry is correctly removed.
+	if k.HasFraudMark(ctx, apt.TaskId) {
+		return true
+	}
+
 	userAddr, err := sdk.AccAddressFromBech32(apt.UserAddress)
 	if err != nil {
 		return false

@@ -88,10 +88,18 @@ func TestKT_Issue5_FraudProof_RejectsMissingActualContent(t *testing.T) {
 func TestKT_Issue5_FraudProof_AcceptsMatchingContent(t *testing.T) {
 	// Sanity check that the post-fix path still accepts a legitimate proof.
 	// Mirrors TestProcessFraudProof_Success but with explicit Issue-5 framing.
+	// PR #50 (Issue 5.2): a chain footprint is now required, so seed a
+	// SettledTask record before invoking ProcessFraudProof.
 	k, ctx, _, _ := setupKeeper(t)
 
 	worker := makeAddr("kt-i5-worker-3")
 	taskId := []byte("kt-i5-bound-proof-001")
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskId,
+		Status:        types.TaskSettled,
+		WorkerAddress: worker.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
 
 	content := []byte("the actual content the worker produced")
 	contentHash, contentSig := signFraudContent(t, content)

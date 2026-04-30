@@ -404,6 +404,13 @@ func TestFraudProofBeforeSettlement_PreventsCharge(t *testing.T) {
 
 	_ = k.ProcessDeposit(ctx, userAddr, sdk.NewCoin("ufai", math.NewInt(5_000_000)))
 
+	// PR #50 (Issue 5.2): pre-settle fraud now requires a chain footprint —
+	// in production this comes from MsgBatchReserve (PR #44 + #45) freezing
+	// the user's balance at task accept time. Seed a frozen-balance entry
+	// here so the fraud-before-settle path resolves correctly through the
+	// new footprint check.
+	_ = k.FreezeBalance(ctx, userAddr, taskId, sdk.NewCoin("ufai", math.NewInt(1_000_000)))
+
 	// Submit fraud proof BEFORE settlement
 	chBefore, csBefore := signFraudContent(t, []byte("c"))
 	_ = k.ProcessFraudProof(ctx, &types.MsgFraudProof{
