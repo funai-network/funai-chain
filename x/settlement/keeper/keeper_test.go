@@ -30,6 +30,10 @@ var testProposerKey = secp256k1.GenPrivKey()
 
 type mockBankKeeper struct {
 	balances map[string]sdk.Coins
+	// SendModuleToAcctHook lets a test inject a SendCoinsFromModuleToAccount
+	// failure for specific recipients. If the hook returns a non-nil error,
+	// the SendCoins call propagates it (used by Issue H atomicity tests).
+	SendModuleToAcctHook func(recipient sdk.AccAddress, coins sdk.Coins) error
 }
 
 func newMockBankKeeper() *mockBankKeeper {
@@ -44,7 +48,10 @@ func (m *mockBankKeeper) SendCoinsFromAccountToModule(_ context.Context, _ sdk.A
 	return nil
 }
 
-func (m *mockBankKeeper) SendCoinsFromModuleToAccount(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
+func (m *mockBankKeeper) SendCoinsFromModuleToAccount(_ context.Context, _ string, recipient sdk.AccAddress, coins sdk.Coins) error {
+	if m.SendModuleToAcctHook != nil {
+		return m.SendModuleToAcctHook(recipient, coins)
+	}
 	return nil
 }
 

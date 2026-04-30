@@ -20,6 +20,7 @@ package keeper_test
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -215,13 +216,15 @@ func TestKT_Issue5_4_FraudMark_BlocksLaterAuditedSettle(t *testing.T) {
 		t.Fatalf("after FraudProof status must be TaskFraud, got %s", post1.Status)
 	}
 
-	// Step 3: 3 late-arriving audit responses → triggers processAuditJudgment
-	// → settleAuditedTask. With the fraud mark set, settleAuditedTask must
-	// short-circuit and the SettledTask MUST stay at TaskFraud (not flip
-	// back to TaskSettled or TaskFailed).
+	// Step 3: 3 late-arriving audit responses from DISTINCT second_verifiers
+	// → triggers processAuditJudgment → settleAuditedTask. With the fraud
+	// mark set, settleAuditedTask must short-circuit and the SettledTask
+	// MUST stay at TaskFraud (not flip back to TaskSettled or TaskFailed).
+	// Distinct addresses are required by Issue C residual (no same-verifier
+	// duplicates within a single audit record).
 	for i := 0; i < 3; i++ {
 		_ = k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
-			SecondVerifier: makeAddr("kt-i54-aud-vX").String(),
+			SecondVerifier: makeAddr(fmt.Sprintf("kt-i54-aud-v%d", i)).String(),
 			TaskId:         taskId,
 			Epoch:          1,
 			Pass:           true,

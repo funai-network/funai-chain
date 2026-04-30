@@ -696,6 +696,12 @@ func (p *Proposer) buildAuditRequest(taskId []byte, ev *TaskEvidence) *p2ptypes.
 // Returns true when enough responses (3) have been collected. On completion,
 // the audit is moved from pendingAudits to readyAudits for the next
 // MsgSecondVerificationResultBatch broadcast (D2 / issue #9).
+//
+// Issue C (FunAI-non-state-machine-findings-2026-04-30): responses are
+// deduped by SecondVerifierAddr at this layer so duplicates from a single
+// second_verifier never enter the audit-batch pipeline. The keeper rejects
+// duplicates as a defense-in-depth backstop, but stopping them here saves
+// the wasted batch entry + signature verification on chain.
 func (p *Proposer) CollectSecondVerificationResponse(resp *p2ptypes.SecondVerificationResponse) (complete bool, pass bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -712,6 +718,13 @@ func (p *Proposer) CollectSecondVerificationResponse(resp *p2ptypes.SecondVerifi
 
 	if len(ev.Responses) >= 3 {
 		return true, p.countAuditPass(ev) >= 2
+	}
+
+	// Issue C: drop duplicate SecondVerifierAddr.
+	for _, existing := range ev.Responses {
+		if bytes.Equal(existing.SecondVerifierAddr, resp.SecondVerifierAddr) {
+			return false, false
+		}
 	}
 
 	ev.Responses = append(ev.Responses, *resp)

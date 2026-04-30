@@ -330,10 +330,11 @@ func TestIntegration_SecondVerificationResult_AfterTimeout(t *testing.T) {
 	t.Logf("[PASS] Task settled by timeout with status=%d, no jails from late audit results", st.Status)
 }
 
-// TestIntegration_DuplicateSecondVerifierSubmission (E9) documents that the current
-// code does NOT deduplicate second_verifier addresses. The same second_verifier can submit
-// multiple times, and each submission is appended to the SecondVerificationRecord.
-// After SecondVerifierCount (3) results are collected, judgment triggers.
+// TestIntegration_DuplicateSecondVerifierSubmission (E9) pins the post-fix
+// dedup behavior: the same second_verifier may NOT submit twice for the same
+// task. Pre-fix this test documented the absence of dedup; Issue C residual
+// (FunAI-non-state-machine-findings-2026-04-30) closes that gap by rejecting
+// any duplicate inside ProcessSecondVerificationResult.
 func TestIntegration_DuplicateSecondVerifierSubmission(t *testing.T) {
 	k, ctx, _, wk := setupKeeper(t)
 	k.SetCurrentSecondVerificationRate(ctx, 0)
@@ -352,7 +353,6 @@ func TestIntegration_DuplicateSecondVerifierSubmission(t *testing.T) {
 		t.Fatalf("Deposit: %v", err)
 	}
 
-	// Create audit pending task
 	apt := types.SecondVerificationPendingTask{
 		TaskId:            taskId,
 		OriginalStatus:    types.SettlementSuccess,
@@ -367,57 +367,51 @@ func TestIntegration_DuplicateSecondVerifierSubmission(t *testing.T) {
 
 	aud1 := makeAddr("e9-aud1").String()
 	aud2 := makeAddr("e9-aud2").String()
+	aud3 := makeAddr("e9-aud3").String()
 
-	// First submission from aud1
-	err := k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
+	// First submission from aud1 — must succeed.
+	if err := k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
 		SecondVerifier: aud1, TaskId: taskId, Epoch: 0, Pass: true, LogitsHash: []byte("lh"),
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("First aud1 submission: %v", err)
 	}
 
-	// Second submission from aud1 (duplicate — current code accepts it)
-	err = k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
+	// Duplicate submission from aud1 — Issue C residual: must be rejected.
+	if err := k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
 		SecondVerifier: aud1, TaskId: taskId, Epoch: 0, Pass: true, LogitsHash: []byte("lh"),
-	})
-	if err != nil {
-		t.Fatalf("Second aud1 submission: %v", err)
+	}); err == nil {
+		t.Fatal("Issue C residual: duplicate same-verifier submission must be rejected")
 	}
 
-	// Check record after 2 submissions — should have 2 entries, both from aud1
 	ar, found := k.GetSecondVerificationRecord(ctx, taskId)
 	if !found {
-		t.Fatal("SecondVerificationRecord not found after 2 submissions")
+		t.Fatal("SecondVerificationRecord not found after first submission")
 	}
-	if len(ar.SecondVerifierAddresses) != 2 {
-		t.Fatalf("After 2 submissions: want 2 second_verifier entries, got %d", len(ar.SecondVerifierAddresses))
+	if len(ar.SecondVerifierAddresses) != 1 {
+		t.Fatalf("After dedup: want exactly 1 second_verifier entry, got %d (%v)", len(ar.SecondVerifierAddresses), ar.SecondVerifierAddresses)
 	}
-	if ar.SecondVerifierAddresses[0] != aud1 || ar.SecondVerifierAddresses[1] != aud1 {
-		t.Fatalf("Expected both entries from aud1, got %v", ar.SecondVerifierAddresses)
-	}
-	t.Log("[PASS] Duplicate second_verifier submission accepted (no deduplication)")
 
-	// Third submission from aud2 — triggers judgment (3 results collected)
+	// Two more submissions from distinct addresses → reaches threshold (3) and judgment fires.
 	jailsBefore := len(wk.jailCalls)
-	err = k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
+	if err := k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
 		SecondVerifier: aud2, TaskId: taskId, Epoch: 0, Pass: true, LogitsHash: []byte("lh"),
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("aud2 submission: %v", err)
 	}
+	if err := k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
+		SecondVerifier: aud3, TaskId: taskId, Epoch: 0, Pass: true, LogitsHash: []byte("lh"),
+	}); err != nil {
+		t.Fatalf("aud3 submission: %v", err)
+	}
 
-	// After 3 results (all PASS), judgment triggers: SUCCESS + audit PASS → settle as success
 	ar, _ = k.GetSecondVerificationRecord(ctx, taskId)
 	if len(ar.SecondVerifierAddresses) != 3 {
-		t.Fatalf("Final record: want 3 entries, got %d", len(ar.SecondVerifierAddresses))
+		t.Fatalf("Final record: want 3 distinct entries, got %d (%v)", len(ar.SecondVerifierAddresses), ar.SecondVerifierAddresses)
 	}
-	// Entries are: aud1, aud1, aud2 — documenting that duplicates are stored
-	if ar.SecondVerifierAddresses[0] != aud1 || ar.SecondVerifierAddresses[1] != aud1 || ar.SecondVerifierAddresses[2] != aud2 {
-		t.Fatalf("Expected [aud1, aud1, aud2], got %v", ar.SecondVerifierAddresses)
+	if ar.SecondVerifierAddresses[0] != aud1 || ar.SecondVerifierAddresses[1] != aud2 || ar.SecondVerifierAddresses[2] != aud3 {
+		t.Fatalf("Expected [aud1, aud2, aud3], got %v", ar.SecondVerifierAddresses)
 	}
-	t.Log("[PASS] SecondVerificationRecord has 3 entries: [aud1, aud1, aud2]")
 
-	// Judgment should have settled the task as success (no jails for SUCCESS + audit PASS)
 	if len(wk.jailCalls) != jailsBefore {
 		t.Fatalf("Expected no new jail calls for SUCCESS+PASS, got %d", len(wk.jailCalls)-jailsBefore)
 	}
@@ -429,7 +423,6 @@ func TestIntegration_DuplicateSecondVerifierSubmission(t *testing.T) {
 	if st.Status != types.TaskSettled {
 		t.Fatalf("Expected TaskSettled, got %d", st.Status)
 	}
-	t.Log("[PASS] Judgment triggered after 3 results, task settled as success")
 }
 
 // TestIntegration_ThirdVerificationFourQuadrants (F1-F5) is a table-driven test for audit
