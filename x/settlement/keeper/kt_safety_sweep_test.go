@@ -3,12 +3,19 @@ package keeper_test
 // Tests for KT 30-case Issues 5 + 8 (settlement keeper layer).
 // (Issue 10 is exercised in p2p/proposer; tests live with that package.)
 //
-// Issue 5  FraudProof must bind ActualContent ↔ ContentHash.
-//          Pre-fix the keeper verified Worker's signature on ContentHash but
-//          never checked sha256(ActualContent) == ContentHash. An attacker
-//          who captured any (ContentHash, WorkerContentSig) pair from past
-//          inference traffic could submit it with arbitrary ActualContent
-//          and slash the Worker for content the Worker never produced.
+// Issue 5  FraudProof bind check.
+//          Pre-Phase-2: kept ActualContent on-chain and required
+//          sha256(ActualContent) == ContentHash + Worker sig over ContentHash.
+//          That semantic only proved Worker had signed *something*, not that
+//          Worker had committed to two contradicting hashes — any valid
+//          (content, sig) tuple from honest delivery passed it. FraudProof
+//          Phase 2 replaces the schema with a two-signature contradiction
+//          proof (ReceiptResultHash + WorkerReceiptSig vs ReceivedOutputHash
+//          + WorkerContentSig, both task-bound, must differ). Tests below
+//          pin the Phase 2 rejection paths and the success path; the prior
+//          Issue-5 sub-items 5.2 / 5.3 / 5.4 / 5.5 (footprint, worker
+//          binding, terminality, idempotency) live in
+//          kt_fraud_binding_residual_test.go and remain in force.
 //
 // Issue 8  distributeSuccessFee / distributeFailFee must dedup verifiers.
 //          Pre-fix the verifier pool was split by len(verifiers) and paid
@@ -25,98 +32,190 @@ import (
 )
 
 // ============================================================
-// Issue 5 — FraudProof binding.
+// Issue 5 (Phase 2) — receipt-vs-content contradiction proof.
 // ============================================================
 
-// Pre-existing TestProcessFraudProof_Success in keeper_test.go uses
-// signFraudContent("content") which sets ContentHash = sha256("content")
-// AND ActualContent = "content" (matching). That test continues to pass
-// because the binding check is satisfied. The cases below pin the
-// rejection path.
-
-func TestKT_Issue5_FraudProof_RejectsContentMismatch(t *testing.T) {
+// Phase 2 rejects when both halves agree (no contradiction). Both signatures
+// validate, but the proof asserts no fraud occurred.
+func TestKT_Issue5_FraudProofPhase2_RejectsAgreement(t *testing.T) {
 	k, ctx, _, _ := setupKeeper(t)
 
-	worker := makeAddr("kt-i5-worker")
-	taskId := []byte("kt-i5-mismatch-task1")
-
-	// Worker legitimately signed sha256("real-content").
-	contentHash, contentSig := signFraudContent(t, []byte("real-content"))
-
-	// Attacker submits with the legitimate (hash, sig) but FAKE actual content.
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i5-attacker").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("fabricated-content-the-worker-never-produced"),
-	}
-
-	err := k.ProcessFraudProof(ctx, msg)
-	if err == nil {
-		t.Fatal("Issue 5: keeper MUST reject FraudProof when sha256(ActualContent) != ContentHash")
-	}
-	// Worker MUST NOT be slashed by an unbound proof.
-	if k.HasFraudMark(ctx, taskId) {
-		t.Fatal("Issue 5: fraud mark must NOT be set when content/hash binding fails")
-	}
-}
-
-func TestKT_Issue5_FraudProof_RejectsMissingActualContent(t *testing.T) {
-	k, ctx, _, _ := setupKeeper(t)
-
-	worker := makeAddr("kt-i5-worker-2")
-	taskId := []byte("kt-i5-missing-actual1")
-
-	contentHash, contentSig := signFraudContent(t, []byte("anything"))
-
-	// Empty ActualContent + non-empty ContentHash → unbinding case.
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i5-rep-2").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    nil,
-	}
-	if err := k.ProcessFraudProof(ctx, msg); err == nil {
-		t.Fatal("Issue 5: keeper MUST reject when ContentHash is set but ActualContent is empty")
-	}
-}
-
-func TestKT_Issue5_FraudProof_AcceptsMatchingContent(t *testing.T) {
-	// Sanity check that the post-fix path still accepts a legitimate proof.
-	// Mirrors TestProcessFraudProof_Success but with explicit Issue-5 framing.
-	// PR #50 (Issue 5.2): a chain footprint is now required, so seed a
-	// SettledTask record before invoking ProcessFraudProof.
-	k, ctx, _, _ := setupKeeper(t)
-
-	worker := makeAddr("kt-i5-worker-3")
-	taskId := []byte("kt-i5-bound-proof-001")
+	user := makeAddr("kt-i5p2-user")
+	worker := makeAddr("kt-i5p2-worker")
+	taskId := []byte("kt-i5p2-agree-task01")
 	k.SetSettledTask(ctx, types.SettledTaskID{
 		TaskId:        taskId,
 		Status:        types.TaskSettled,
+		SettledAt:     ctx.BlockHeight(),
 		WorkerAddress: worker.String(),
+		UserAddress:   user.String(),
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	content := []byte("the actual content the worker produced")
-	contentHash, contentSig := signFraudContent(t, content)
+	// Two halves identical — Worker honestly delivered what it committed to.
+	sameHash := []byte("0123456789abcdef0123456789abcdef") // 32 bytes, content hash + result hash both = this
+	receiptSig, contentSig := signFraudPair(t, taskId, sameHash, sameHash)
 
 	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i5-rep-3").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    content,
+		Reporter:           user.String(),
+		TaskId:             taskId,
+		WorkerAddress:      worker.String(),
+		ReceiptResultHash:  sameHash,
+		WorkerReceiptSig:   receiptSig,
+		ReceivedOutputHash: sameHash,
+		WorkerContentSig:   contentSig,
 	}
-	if err := k.ProcessFraudProof(ctx, msg); err != nil {
-		t.Fatalf("Issue 5: bound proof must still succeed, got %v", err)
+	if err := k.ProcessFraudProof(ctx, msg); err == nil {
+		t.Fatal("Phase 2: keeper MUST reject FraudProof when receipt hash == received hash (no contradiction)")
+	}
+	if k.HasFraudMark(ctx, taskId) {
+		t.Fatal("Phase 2: fraud mark must NOT be set when both halves agree")
+	}
+}
+
+// Phase 2 rejects when WorkerReceiptSig is invalid (e.g. forged or signed
+// over the wrong payload). Without a valid receipt-side sig the chain has
+// no proof Worker ever committed to the receipt result hash.
+func TestKT_Issue5_FraudProofPhase2_RejectsInvalidReceiptSig(t *testing.T) {
+	k, ctx, _, _ := setupKeeper(t)
+
+	user := makeAddr("kt-i5p2-bad-receipt-user")
+	worker := makeAddr("kt-i5p2-bad-receipt-worker")
+	taskId := []byte("kt-i5p2-bad-receipt-01")
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskId,
+		Status:        types.TaskSettled,
+		SettledAt:     ctx.BlockHeight(),
+		WorkerAddress: worker.String(),
+		UserAddress:   user.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
+
+	receiptHash := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	receivedHash := []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	_, contentSig := signFraudPair(t, taskId, receiptHash, receivedHash)
+
+	msg := &types.MsgFraudProof{
+		Reporter:           user.String(),
+		TaskId:             taskId,
+		WorkerAddress:      worker.String(),
+		ReceiptResultHash:  receiptHash,
+		WorkerReceiptSig:   []byte("forged-sig-not-from-worker"),
+		ReceivedOutputHash: receivedHash,
+		WorkerContentSig:   contentSig,
+	}
+	if err := k.ProcessFraudProof(ctx, msg); err == nil {
+		t.Fatal("Phase 2: keeper MUST reject when WorkerReceiptSig fails verification")
+	}
+	if k.HasFraudMark(ctx, taskId) {
+		t.Fatal("Phase 2: fraud mark must NOT be set when receipt sig is invalid")
+	}
+}
+
+// Phase 2 rejects when WorkerContentSig is invalid. Symmetric to the
+// receipt-sig case: chain refuses to slash without proof Worker signed the
+// delivery hash.
+func TestKT_Issue5_FraudProofPhase2_RejectsInvalidContentSig(t *testing.T) {
+	k, ctx, _, _ := setupKeeper(t)
+
+	user := makeAddr("kt-i5p2-bad-content-user")
+	worker := makeAddr("kt-i5p2-bad-content-worker")
+	taskId := []byte("kt-i5p2-bad-content-01")
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskId,
+		Status:        types.TaskSettled,
+		SettledAt:     ctx.BlockHeight(),
+		WorkerAddress: worker.String(),
+		UserAddress:   user.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
+
+	receiptHash := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	receivedHash := []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	receiptSig, _ := signFraudPair(t, taskId, receiptHash, receivedHash)
+
+	msg := &types.MsgFraudProof{
+		Reporter:           user.String(),
+		TaskId:             taskId,
+		WorkerAddress:      worker.String(),
+		ReceiptResultHash:  receiptHash,
+		WorkerReceiptSig:   receiptSig,
+		ReceivedOutputHash: receivedHash,
+		WorkerContentSig:   []byte("forged-content-sig"),
+	}
+	if err := k.ProcessFraudProof(ctx, msg); err == nil {
+		t.Fatal("Phase 2: keeper MUST reject when WorkerContentSig fails verification")
+	}
+	if k.HasFraudMark(ctx, taskId) {
+		t.Fatal("Phase 2: fraud mark must NOT be set when content sig is invalid")
+	}
+}
+
+// Phase 2 rejects a cross-task replay attempt: a sig captured from task A
+// (which signed sha256(taskA || hash)) cannot be re-presented as a sig over
+// sha256(taskB || hash) — the task_id binding makes the replayed sig fail
+// verification.
+func TestKT_Issue5_FraudProofPhase2_RejectsCrossTaskReplay(t *testing.T) {
+	k, ctx, _, _ := setupKeeper(t)
+
+	user := makeAddr("kt-i5p2-replay-user")
+	worker := makeAddr("kt-i5p2-replay-worker")
+	taskA := []byte("kt-i5p2-replay-task-A1")
+	taskB := []byte("kt-i5p2-replay-task-B2")
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskB,
+		Status:        types.TaskSettled,
+		SettledAt:     ctx.BlockHeight(),
+		WorkerAddress: worker.String(),
+		UserAddress:   user.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
+
+	receiptHash := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	receivedHash := []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	// Captured for task A — these sigs are only valid against taskA's payload.
+	receiptSigA, contentSigA := signFraudPair(t, taskA, receiptHash, receivedHash)
+
+	// Reporter tries to weaponise the captured sigs against task B.
+	msg := &types.MsgFraudProof{
+		Reporter:           user.String(),
+		TaskId:             taskB,
+		WorkerAddress:      worker.String(),
+		ReceiptResultHash:  receiptHash,
+		WorkerReceiptSig:   receiptSigA,
+		ReceivedOutputHash: receivedHash,
+		WorkerContentSig:   contentSigA,
+	}
+	if err := k.ProcessFraudProof(ctx, msg); err == nil {
+		t.Fatal("Phase 2: cross-task sig replay must be rejected by task_id binding in canonical payload")
+	}
+	if k.HasFraudMark(ctx, taskB) {
+		t.Fatal("Phase 2: fraud mark must NOT be set on cross-task replay")
+	}
+}
+
+// Phase 2 success path: two distinct hashes, both validly signed by Worker
+// over the task-bound canonical payload, yields a fraud mark + slash.
+func TestKT_Issue5_FraudProofPhase2_AcceptsValidContradiction(t *testing.T) {
+	k, ctx, _, _ := setupKeeper(t)
+
+	user := makeAddr("kt-i5p2-success-user")
+	worker := makeAddr("kt-i5p2-success-worker")
+	taskId := []byte("kt-i5p2-success-task01")
+	k.SetSettledTask(ctx, types.SettledTaskID{
+		TaskId:        taskId,
+		Status:        types.TaskSettled,
+		SettledAt:     ctx.BlockHeight(),
+		WorkerAddress: worker.String(),
+		UserAddress:   user.String(),
+		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
+	})
+
+	if err := k.ProcessFraudProof(ctx, makePhase2FraudMsg(t, user.String(), worker.String(), taskId)); err != nil {
+		t.Fatalf("Phase 2: valid contradiction proof must succeed, got %v", err)
 	}
 	if !k.HasFraudMark(ctx, taskId) {
-		t.Fatal("Issue 5: fraud mark must be set on accepted bound proof")
+		t.Fatal("Phase 2: fraud mark must be set on accepted contradiction proof")
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 
 	sdkerrors "cosmossdk.io/errors"
 
+	p2ptypes "github.com/funai-wiki/funai-chain/p2p/types"
 	"github.com/funai-wiki/funai-chain/x/settlement/types"
 )
 
@@ -1518,42 +1519,50 @@ func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) err
 		}
 	}
 
-	// KT Issue 5: bind ActualContent to ContentHash before trusting either.
-	// Pre-fix the keeper only verified the Worker's signature on ContentHash;
-	// the ActualContent field was used for downstream business logic (slash
-	// + refund) without any check that it actually hashes to the signed
-	// digest. An attacker who captured ANY (ContentHash, WorkerContentSig)
-	// pair from past inference traffic could submit it with arbitrary
-	// ActualContent and slash the Worker for content the Worker never
-	// produced. The bind check below makes the proof's two halves agree.
-	if len(msg.ActualContent) > 0 || len(msg.ContentHash) > 0 {
-		if len(msg.ActualContent) == 0 || len(msg.ContentHash) == 0 {
-			return fmt.Errorf("FraudProof: ContentHash and ActualContent must both be present")
-		}
-		actualHash := sha256.Sum256(msg.ActualContent)
-		if !bytes.Equal(actualHash[:], msg.ContentHash) {
-			return fmt.Errorf("FraudProof: sha256(ActualContent) does not match ContentHash — proof is unbound")
-		}
+	// FraudProof Phase 2: receipt-vs-content contradiction proof.
+	//
+	// The proof carries two Worker-signed task-bound commitments and asserts
+	// they disagree:
+	//
+	//   WorkerReceiptSig := sign(p2ptypes.ReceiptSigPayload(task_id, ReceiptResultHash))
+	//   WorkerContentSig := sign(p2ptypes.ContentSigPayload(task_id, ReceivedOutputHash))
+	//   require ReceiptResultHash != ReceivedOutputHash
+	//
+	// Both payloads are sha256(task_id || hash) so a sig captured from one
+	// task cannot be replayed in a FraudProof for a different task. With both
+	// sigs valid AND the hashes different, only the Worker (holding the
+	// private key) could have produced the contradiction — slashing is sound.
+	//
+	// Replaces the V5.2 §12.4 self-consistency check (sha256(ActualContent)
+	// == ContentHash + sig over ContentHash). That check verified Worker had
+	// signed *something*, not that Worker had committed to two contradicting
+	// somethings — so any valid (content, sig) tuple from honest delivery
+	// would have passed it. Phase 2 closes that hole.
+	//
+	// KT Issue 4 pubkey-format support is preserved.
+	if k.workerKeeper == nil {
+		return fmt.Errorf("FraudProof: worker keeper not configured (cannot verify Worker pubkey)")
 	}
+	pubkeyStr, found := k.workerKeeper.GetWorkerPubkey(ctx, workerAddr)
+	if !found {
+		return fmt.Errorf("FraudProof: worker pubkey not found on-chain for %s", msg.WorkerAddress)
+	}
+	pubkeyBytes := types.DecodeWorkerPubkey(pubkeyStr)
+	if pubkeyBytes == nil {
+		return fmt.Errorf("FraudProof: worker pubkey for %s is not a valid 33-byte secp256k1 key (raw/hex/base64)", msg.WorkerAddress)
+	}
+	workerPubkey := secp256k1.PubKey(pubkeyBytes)
 
-	// H3: verify Worker's content signature using on-chain pubkey to prevent fake FraudProof.
-	// §12.4: Worker signs hash(full_content), user cannot forge without Worker privkey.
-	// KT Issue 4: must accept all three pubkey formats (raw / hex / base64) because
-	// MsgRegisterWorker via the funaid CLI stores hex; treating that hex string as
-	// raw bytes silently broke every legitimate fraud report pre-fix.
-	if k.workerKeeper != nil && len(msg.WorkerContentSig) > 0 && len(msg.ContentHash) > 0 {
-		pubkeyStr, found := k.workerKeeper.GetWorkerPubkey(ctx, workerAddr)
-		if !found {
-			return fmt.Errorf("FraudProof: worker pubkey not found on-chain for %s", msg.WorkerAddress)
-		}
-		pubkeyBytes := types.DecodeWorkerPubkey(pubkeyStr)
-		if pubkeyBytes == nil {
-			return fmt.Errorf("FraudProof: worker pubkey for %s is not a valid 33-byte secp256k1 key (raw/hex/base64)", msg.WorkerAddress)
-		}
-		workerPubkey := secp256k1.PubKey(pubkeyBytes)
-		if !workerPubkey.VerifySignature(msg.ContentHash, msg.WorkerContentSig) {
-			return fmt.Errorf("FraudProof: worker content signature verification failed")
-		}
+	receiptPayload := p2ptypes.ReceiptSigPayload(msg.TaskId, msg.ReceiptResultHash)
+	if !workerPubkey.VerifySignature(receiptPayload, msg.WorkerReceiptSig) {
+		return fmt.Errorf("FraudProof: worker receipt signature verification failed")
+	}
+	contentPayload := p2ptypes.ContentSigPayload(msg.TaskId, msg.ReceivedOutputHash)
+	if !workerPubkey.VerifySignature(contentPayload, msg.WorkerContentSig) {
+		return fmt.Errorf("FraudProof: worker content signature verification failed")
+	}
+	if bytes.Equal(msg.ReceiptResultHash, msg.ReceivedOutputHash) {
+		return fmt.Errorf("FraudProof: receipt_result_hash equals received_output_hash — both halves agree, no contradiction")
 	}
 
 	k.SetFraudMark(ctx, msg.TaskId)

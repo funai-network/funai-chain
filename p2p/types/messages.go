@@ -144,6 +144,39 @@ type InferReceipt struct {
 	// and user clock skew — noise for VRF speed ranking. Included in worker_sig
 	// coverage so the Worker cannot be MITM-edited to fake a better score.
 	InferenceLatencyMs uint32 `json:"inference_latency_ms,omitempty"`
+
+	// FraudProof Phase 2: minimal task-bound signature over
+	// sha256(task_id || result_hash). Decoupled from the larger WorkerSig so a
+	// FraudProof can verify the Worker's commitment to result_hash without
+	// having to reconstruct the full SignBytes() canonical (logits / sampled
+	// tokens / latency / token counts). The chain only needs the minimal
+	// payload to detect a Worker-signed contradiction between this hash and
+	// the StreamToken.ContentSig hash. Computed via ReceiptSigPayload.
+	ReceiptSig []byte `json:"receipt_sig,omitempty"`
+}
+
+// ReceiptSigPayload returns the canonical byte string Worker signs for
+// InferReceipt.ReceiptSig: sha256(task_id || result_hash). The chain-side
+// FraudProof handler verifies a Worker secp256k1 signature over this payload
+// against the Worker pubkey on file. Bound to task_id so a sig captured from
+// one task cannot be replayed in a FraudProof for a different task.
+func ReceiptSigPayload(taskId, resultHash []byte) []byte {
+	h := sha256.New()
+	h.Write(taskId)
+	h.Write(resultHash)
+	return h.Sum(nil)
+}
+
+// ContentSigPayload returns the canonical byte string Worker signs for
+// StreamToken.ContentSig: sha256(task_id || content_hash). FraudProof
+// Phase 2 binds the content signature to task_id so a content-sig captured
+// from one task cannot be replayed in a FraudProof for a different task.
+// Pre-Phase-2 the signature was over content_hash only (no task_id binding).
+func ContentSigPayload(taskId, contentHash []byte) []byte {
+	h := sha256.New()
+	h.Write(taskId)
+	h.Write(contentHash)
+	return h.Sum(nil)
 }
 
 // SignBytes returns canonical bytes for signing the InferReceipt.

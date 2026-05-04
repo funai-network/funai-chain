@@ -335,25 +335,41 @@ func (c *Client) Infer(ctx context.Context, params InferParams) (*InferResult, e
 	// the final output (see reassembleStreamTokens).
 	var received []p2ptypes.StreamToken
 	var finalContentSig []byte
-	var workerReceipt *p2ptypes.InferReceipt
 	retryTimer := time.NewTimer(c.InferTimeout)
 	defer retryTimer.Stop()
 
-	// P2-9: use channel to safely receive receipt from goroutine (no data race)
-	receiptCh := make(chan *p2ptypes.InferReceipt, 1)
+	// P2-9: use channel to safely receive receipt from goroutine (no data race).
+	//
+	// FraudProof Phase 2: buffer up to 8 receipts. In a multi-worker testnet
+	// (or any topology where the leader's dispatch races more than one worker),
+	// several workers may all stream their own InferReceipts on the per-task
+	// topic before the chain settles on the canonical worker. With the prior
+	// single-slot channel the SDK picked the FIRST receipt to arrive, which
+	// is rarely the same as settledTask.WorkerAddress — the on-chain Issue 5.3
+	// worker-binding check then rejects FraudProof with "WorkerAddress does
+	// not match". Buffering lets the fraud-detection branch try each candidate
+	// receipt and submit a FraudProof per detected mismatch; the chain accepts
+	// the one whose worker matches the settlement and rejects the rest.
+	receiptCh := make(chan *p2ptypes.InferReceipt, 8)
 	go func() {
 		if receiptSub == nil {
 			return
 		}
-		msg, err := receiptSub.Next(ctx)
-		if err != nil {
-			return
+		for {
+			msg, err := receiptSub.Next(ctx)
+			if err != nil {
+				return
+			}
+			var receipt p2ptypes.InferReceipt
+			if err := json.Unmarshal(msg.Data, &receipt); err != nil {
+				continue
+			}
+			select {
+			case receiptCh <- &receipt:
+			default:
+				return
+			}
 		}
-		var receipt p2ptypes.InferReceipt
-		if err := json.Unmarshal(msg.Data, &receipt); err != nil {
-			return
-		}
-		receiptCh <- &receipt
 	}()
 
 	for {
@@ -423,36 +439,77 @@ func (c *Client) Infer(ctx context.Context, params InferParams) (*InferResult, e
 				Verified:   true,
 			}
 
-			// P2-9: safely receive receipt from channel (no data race).
+			// P2-9: safely receive receipt(s) from channel (no data race).
 			// The Worker publishes the final StreamToken and the InferReceipt
 			// back-to-back but on separate pubsub topics, and pubsub offers
-			// no cross-topic ordering guarantee. With a purely non-blocking
-			// select here, the common case was `default` firing before the
-			// receipt-reader goroutine had drained its subscription — receipt
-			// stayed nil, M7 never ran, a tampered receipt went undetected,
-			// and Verified defaulted to true. Waiting up to 1 s lets the
-			// goroutine populate receiptCh; if the receipt truly never arrives
-			// we fall through and keep the prior permissive behaviour
-			// (Verified=true, no FraudProof submitted) rather than blocking
-			// the SDK caller indefinitely.
-			const receiptWait = 1 * time.Second
+			// no cross-topic ordering guarantee.
+			//
+			// FraudProof Phase 2 timing strategy (preserves honest-path
+			// latency, only pays the multi-worker scan when something looks
+			// off):
+			//   1. Wait up to 3 s for the *first* receipt. If it arrives and
+			//      its result_hash matches sha256(streamed content), it's an
+			//      honest receipt — return immediately.
+			//   2. Otherwise (no receipt, or first receipt is a mismatch),
+			//      drain additional receipts for another 5 s. Multiple
+			//      workers in the e2e mock testnet race the same task and
+			//      publish independent receipts on the per-task topic, only
+			//      one of which matches settledTask.WorkerAddress. Without
+			//      collecting them all, the SDK risks firing FraudProof for
+			//      a worker the chain didn't settle, hitting Issue 5.3
+			//      "WorkerAddress does not match" on the only branch
+			//      available.
+			//   3. Iterate all collected receipts. For each valid mismatched
+			//      sig, fire a FraudProof. Chain accepts the one whose
+			//      worker matches settledTask; the rest hit the FraudMark
+			//      idempotency check (PR #50 KT Issue 5.5).
+			const initialReceiptWait = 3 * time.Second
+			const additionalDrainWait = 5 * time.Second
+			var firstReceipt *p2ptypes.InferReceipt
 			select {
 			case r := <-receiptCh:
-				workerReceipt = r
-			case <-time.After(receiptWait):
+				firstReceipt = r
+			case <-time.After(initialReceiptWait):
+			}
+			honestMatch := firstReceipt != nil &&
+				verifyWorkerReceiptSig(firstReceipt) &&
+				bytes.Equal(resultHash[:], firstReceipt.ResultHash)
+			var receipts []*p2ptypes.InferReceipt
+			if firstReceipt != nil {
+				receipts = append(receipts, firstReceipt)
+			}
+			if !honestMatch {
+				drainTimer := time.NewTimer(additionalDrainWait)
+			drainExtras:
+				for {
+					select {
+					case r := <-receiptCh:
+						if r != nil {
+							receipts = append(receipts, r)
+						}
+					case <-drainTimer.C:
+						break drainExtras
+					}
+				}
+				drainTimer.Stop()
 			}
 
-			// M7: verify result_hash against Worker's InferReceipt
-			if workerReceipt != nil {
-				// P3-4: verify Worker's signature on the receipt before trusting it
-				receiptSigValid := verifyWorkerReceiptSig(workerReceipt)
-				if !receiptSigValid {
-					log.Printf("SDK: Worker receipt signature invalid for task %x, ignoring", taskId[:8])
-				} else if !bytes.Equal(resultHash[:], workerReceipt.ResultHash) {
+			// M7: verify result_hash against Worker's InferReceipt(s).
+			fraudFired := false
+			for _, r := range receipts {
+				if !verifyWorkerReceiptSig(r) {
+					log.Printf("SDK: Worker receipt signature invalid for task %x, ignoring candidate", taskId[:8])
+					continue
+				}
+				if bytes.Equal(resultHash[:], r.ResultHash) {
+					continue
+				}
+				if !fraudFired {
 					result.Verified = false
 					log.Printf("SDK: FRAUD DETECTED! result_hash mismatch for task %x", taskId[:8])
-					c.submitFraudProof(ctx, taskId, workerReceipt, []byte(output), resultHash[:], workerContentSig)
+					fraudFired = true
 				}
+				c.submitFraudProof(ctx, taskId, r, resultHash[:], workerContentSig)
 			}
 
 			return result, nil
@@ -484,23 +541,22 @@ func verifyWorkerReceiptSig(receipt *p2ptypes.InferReceipt) bool {
 // submitFraudProof submits a MsgFraudProof to the chain when Worker sends
 // content that doesn't match the signed InferReceipt.
 //
-// M7: last line of defense against Workers sending fake content.
+// FraudProof Phase 2: the message attests a Worker-signed contradiction —
+// receipt promises ReceiptResultHash, delivery hashes to ReceivedOutputHash,
+// these differ, both signed by the Worker's secp256k1 key over task-bound
+// canonical payloads (p2ptypes.ReceiptSigPayload / ContentSigPayload).
+// Replaces the Phase 1 self-consistency proof which only attested that
+// Worker had signed *something* — useless against an honest-delivery sig
+// being weaponised by a malicious user.
 //
-// Prior to this implementation the SDK marshalled a custom struct to raw JSON
-// and handed it to BroadcastTx, which CometBFT rejects as "tx parse error"
-// — the on-chain keeper is complete but the submission channel was broken
-// (same pattern as D2 / issue #9). This rewrite builds a proper
-// MsgFraudProof, derives bech32 addresses from pubkeys, includes the
-// Worker's content signature (captured from the final StreamToken's
-// ContentSig), and hands the message to BroadcastFraudProof which uses the
-// Cosmos SDK tx builder + signer + TxEncoder pipeline.
-//
-// actualContent: the bytes the SDK actually received from streaming.
-// contentHash: sha256(actualContent) — matches what Worker signed.
-// workerContentSig: the ContentSig field on the final StreamToken. If empty,
-//   the on-chain H3 check skips sig verification — the fraud proof still
-//   lands but can be spammed. The SDK logs a warning in that case.
-func (c *Client) submitFraudProof(ctx context.Context, taskId []byte, receipt *p2ptypes.InferReceipt, actualContent, contentHash, workerContentSig []byte) {
+// receivedOutputHash: sha256(content) for what the user actually received.
+// workerContentSig: ContentSig from the final StreamToken — Worker's
+//   secp256k1 signature over p2ptypes.ContentSigPayload(task_id, received_output_hash).
+// receipt: the InferReceipt published on /funai/receipt/<task_id> — supplies
+//   ReceiptResultHash (the result_hash Worker promised to Verifiers/Proposer)
+//   and the matching ReceiptSig (Worker's sig over
+//   p2ptypes.ReceiptSigPayload(task_id, result_hash)).
+func (c *Client) submitFraudProof(ctx context.Context, taskId []byte, receipt *p2ptypes.InferReceipt, receivedOutputHash, workerContentSig []byte) {
 	if c.chainClient == nil {
 		log.Printf("SDK: FraudProof: no chain client configured, cannot submit")
 		return
@@ -509,12 +565,17 @@ func (c *Client) submitFraudProof(ctx context.Context, taskId []byte, receipt *p
 		log.Printf("SDK: FraudProof: missing or malformed Worker receipt, cannot submit for task %x", taskId[:8])
 		return
 	}
+	if len(receipt.ReceiptSig) == 0 {
+		log.Printf("SDK: FraudProof: receipt missing Phase 2 ReceiptSig for task %x — cannot construct contradiction proof", taskId[:8])
+		return
+	}
 	if len(c.config.UserPrivKey) != 32 || len(c.config.UserPubkey) != 33 {
 		log.Printf("SDK: FraudProof: user key not configured, cannot sign fraud-proof tx for task %x", taskId[:8])
 		return
 	}
 	if len(workerContentSig) == 0 {
-		log.Printf("SDK: FraudProof WARNING: Worker's ContentSig was not captured on the final StreamToken; submitting unsigned fraud proof for task %x — on-chain H3 sig check will be skipped", taskId[:8])
+		log.Printf("SDK: FraudProof: Worker ContentSig not captured on final StreamToken — cannot construct content half of the proof for task %x", taskId[:8])
+		return
 	}
 
 	reporterAddr, err := bech32FromPubkey(c.config.UserPubkey)
@@ -532,9 +593,10 @@ func (c *Client) submitFraudProof(ctx context.Context, taskId []byte, receipt *p
 		reporterAddr,
 		taskId,
 		workerAddr,
-		contentHash,
+		receipt.ResultHash,
+		receipt.ReceiptSig,
+		receivedOutputHash,
 		workerContentSig,
-		actualContent,
 	)
 
 	chainID := c.config.ChainID
@@ -542,13 +604,39 @@ func (c *Client) submitFraudProof(ctx context.Context, taskId []byte, receipt *p
 		chainID = defaultFraudProofChainID
 	}
 
-	txHash, err := c.chainClient.BroadcastFraudProof(ctx, msg, c.config.UserPrivKey, reporterAddr, chainID)
-	if err != nil {
-		log.Printf("SDK: FraudProof: broadcast error for task %x: %v", taskId[:8], err)
-		return
+	// FraudProof Phase 2: chain rejects when the task has no footprint yet —
+	// SettledTask is only created when BatchSettlement lands, which itself
+	// races SDK fraud detection. Two cases drive the wait window:
+	//   1. Common path — Worker delivers, Verifiers reject (or pass), Proposer
+	//      batches. SettledTask appears within ~5–15 s on a 5 s block chain.
+	//   2. VRF audit path (~10 % of tasks per default SecondVerificationBaseRate) —
+	//      Proposer dispatches an AuditRequest, second_verifiers re-execute,
+	//      Proposer publishes MsgSecondVerificationResultBatch, chain settles.
+	//      With mock TGI this is ~30–60 s; on real TGI it can be longer.
+	// 18 retries × 5 s = ~90 s covers (1) and most of (2) without blocking
+	// the SDK Infer caller for too long. The chain's FraudWindowBlocks
+	// (default ~24 h) gives ample headroom.
+	const fraudFootprintRetries = 18
+	const fraudFootprintRetryDelay = 5 * time.Second
+	for attempt := 0; ; attempt++ {
+		txHash, err := c.chainClient.BroadcastFraudProof(ctx, msg, c.config.UserPrivKey, reporterAddr, chainID)
+		if err == nil {
+			log.Printf("SDK: FraudProof submitted tx=%s for task %x worker=%s", txHash, taskId[:8], workerAddr)
+			return
+		}
+		if !strings.Contains(err.Error(), "no chain footprint") || attempt >= fraudFootprintRetries {
+			log.Printf("SDK: FraudProof: broadcast error for task %x: %v", taskId[:8], err)
+			return
+		}
+		log.Printf("SDK: FraudProof: footprint not yet on chain for task %x, retrying in %v (attempt %d/%d)",
+			taskId[:8], fraudFootprintRetryDelay, attempt+1, fraudFootprintRetries)
+		select {
+		case <-ctx.Done():
+			log.Printf("SDK: FraudProof: context canceled during footprint retry for task %x: %v", taskId[:8], ctx.Err())
+			return
+		case <-time.After(fraudFootprintRetryDelay):
+		}
 	}
-
-	log.Printf("SDK: FraudProof submitted tx=%s for task %x worker=%s", txHash, taskId[:8], workerAddr)
 }
 
 // bech32FromPubkey returns the funai-prefixed bech32 address of a compressed

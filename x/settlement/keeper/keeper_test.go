@@ -19,6 +19,7 @@ import (
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
+	p2ptypes "github.com/funai-wiki/funai-chain/p2p/types"
 	"github.com/funai-wiki/funai-chain/x/settlement/keeper"
 	"github.com/funai-wiki/funai-chain/x/settlement/types"
 )
@@ -107,15 +108,47 @@ func (m *mockWorkerKeeper) GetWorkerPubkey(_ sdk.Context, _ sdk.AccAddress) (str
 	return string(testProposerKey.PubKey().Bytes()), true
 }
 
-// signFraudContent creates a properly signed ContentHash+WorkerContentSig pair for FraudProof tests.
-func signFraudContent(t *testing.T, content []byte) (contentHash []byte, sig []byte) {
+// signFraudPair builds the two Worker-signed halves of a Phase 2 FraudProof:
+//
+//	receiptSig  = sign(p2ptypes.ReceiptSigPayload(taskId, receiptResultHash))
+//	contentSig  = sign(p2ptypes.ContentSigPayload(taskId, receivedOutputHash))
+//
+// Both signed by testProposerKey (the in-test "Worker" key the mockWorkerKeeper
+// returns from GetWorkerPubkey). Caller passes taskId + the two hashes; the
+// helper produces the sigs the on-chain ProcessFraudProof handler will verify.
+func signFraudPair(t *testing.T, taskId, receiptResultHash, receivedOutputHash []byte) (receiptSig, contentSig []byte) {
 	t.Helper()
-	h := sha256.Sum256(content)
-	s, err := testProposerKey.Sign(h[:])
+	rsig, err := testProposerKey.Sign(p2ptypes.ReceiptSigPayload(taskId, receiptResultHash))
 	if err != nil {
-		t.Fatalf("failed to sign fraud content: %v", err)
+		t.Fatalf("failed to sign receipt half: %v", err)
 	}
-	return h[:], s
+	csig, err := testProposerKey.Sign(p2ptypes.ContentSigPayload(taskId, receivedOutputHash))
+	if err != nil {
+		t.Fatalf("failed to sign content half: %v", err)
+	}
+	return rsig, csig
+}
+
+// makePhase2FraudMsg builds a fully-signed Phase 2 MsgFraudProof with two
+// distinct hashes (synthetic but task-bound) — the common shape used by tests
+// that just need a valid contradiction proof to exercise downstream logic
+// (footprint check, reporter binding, jail, fraud mark, slash, etc.). Tests
+// that specifically assert *failure modes* of the contradiction check itself
+// should construct the message inline so the precise mismatch is explicit.
+func makePhase2FraudMsg(t *testing.T, reporter, workerAddr string, taskId []byte) *types.MsgFraudProof {
+	t.Helper()
+	receiptHash := sha256.Sum256([]byte("phase2-receipt-promise"))
+	receivedHash := sha256.Sum256([]byte("phase2-received-content"))
+	receiptSig, contentSig := signFraudPair(t, taskId, receiptHash[:], receivedHash[:])
+	return &types.MsgFraudProof{
+		Reporter:           reporter,
+		TaskId:             taskId,
+		WorkerAddress:      workerAddr,
+		ReceiptResultHash:  receiptHash[:],
+		WorkerReceiptSig:   receiptSig,
+		ReceivedOutputHash: receivedHash[:],
+		WorkerContentSig:   contentSig,
+	}
 }
 
 // -------- Helpers --------
@@ -628,15 +661,7 @@ func TestProcessFraudProof_Success(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("content"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("reporter").String(),
-		TaskId:           taskId,
-		WorkerAddress:    workerAddr.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("content"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("reporter").String(), workerAddr.String(), taskId)
 
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -661,12 +686,13 @@ func TestProcessFraudProof_AlreadyMarked(t *testing.T) {
 	k.SetFraudMark(ctx, taskId)
 
 	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("reporter").String(),
-		TaskId:           taskId,
-		WorkerAddress:    makeAddr("worker1").String(),
-		ContentHash:      []byte("hash"),
-		WorkerContentSig: []byte("sig"),
-		ActualContent:    []byte("content"),
+		Reporter:           makeAddr("reporter").String(),
+		TaskId:             taskId,
+		WorkerAddress:      makeAddr("worker1").String(),
+		ReceiptResultHash:  []byte("hash-receipt"),
+		WorkerReceiptSig:   []byte("sig-receipt"),
+		ReceivedOutputHash: []byte("hash-received"),
+		WorkerContentSig:   []byte("sig-content"),
 	}
 
 	err := k.ProcessFraudProof(ctx, msg)
@@ -1458,15 +1484,7 @@ func TestMsgServer_SubmitFraudProof(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("content"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("reporter").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("content"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("reporter").String(), worker.String(), taskId)
 
 	_, err := ms.SubmitFraudProof(ctx, msg)
 	if err != nil {
@@ -1511,15 +1529,7 @@ func TestProcessFraudProof_WithSettledTask(t *testing.T) {
 		WorkerAddress: workerAddr.String(),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("content"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("reporter").String(),
-		TaskId:           taskId,
-		WorkerAddress:    workerAddr.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("content"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("reporter").String(), workerAddr.String(), taskId)
 
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("unexpected error: %v", err)

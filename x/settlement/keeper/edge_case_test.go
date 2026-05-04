@@ -412,15 +412,7 @@ func TestFraudProofBeforeSettlement_PreventsCharge(t *testing.T) {
 	_ = k.FreezeBalance(ctx, userAddr, taskId, sdk.NewCoin("ufai", math.NewInt(1_000_000)))
 
 	// Submit fraud proof BEFORE settlement
-	chBefore, csBefore := signFraudContent(t, []byte("c"))
-	_ = k.ProcessFraudProof(ctx, &types.MsgFraudProof{
-		Reporter:         userAddr.String(),
-		TaskId:           taskId,
-		WorkerAddress:    workerAddr.String(),
-		ContentHash:      chBefore,
-		WorkerContentSig: csBefore,
-		ActualContent:    []byte("c"),
-	})
+	_ = k.ProcessFraudProof(ctx, makePhase2FraudMsg(t, userAddr.String(), workerAddr.String(), taskId))
 
 	// Now try to settle the same task
 	entries := []types.SettlementEntry{
@@ -475,15 +467,7 @@ func TestFraudProofAfterSettlement_MarkedFraud(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(1_000_000)),
 	})
 
-	chAfter, csAfter := signFraudContent(t, []byte("c"))
-	err := k.ProcessFraudProof(ctx, &types.MsgFraudProof{
-		Reporter:         userAddr.String(),
-		TaskId:           taskId,
-		WorkerAddress:    workerAddr.String(),
-		ContentHash:      chAfter,
-		WorkerContentSig: csAfter,
-		ActualContent:    []byte("c"),
-	})
+	err := k.ProcessFraudProof(ctx, makePhase2FraudMsg(t, userAddr.String(), workerAddr.String(), taskId))
 	if err != nil {
 		t.Fatalf("fraud proof should succeed: %v", err)
 	}
@@ -509,15 +493,7 @@ func TestFraudProof_DuplicateRejected(t *testing.T) {
 	k, ctx, _, _ := setupKeeper(t)
 
 	taskId := []byte("fraud-dup-task-0001")
-	chDup, csDup := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("reporter").String(),
-		TaskId:           taskId,
-		WorkerAddress:    makeAddr("worker").String(),
-		ContentHash:      chDup,
-		WorkerContentSig: csDup,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("reporter").String(), makeAddr("worker").String(), taskId)
 
 	_ = k.ProcessFraudProof(ctx, msg)
 	err := k.ProcessFraudProof(ctx, msg)
@@ -1131,12 +1107,13 @@ func TestFraudProof_InvalidWorkerAddress(t *testing.T) {
 	k, ctx, _, _ := setupKeeper(t)
 
 	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("reporter").String(),
-		TaskId:           []byte("fraud-invalid-worker"),
-		WorkerAddress:    "not-a-valid-address",
-		ContentHash:      []byte("h"),
-		WorkerContentSig: []byte("s"),
-		ActualContent:    []byte("c"),
+		Reporter:           makeAddr("reporter").String(),
+		TaskId:             []byte("fraud-invalid-worker"),
+		WorkerAddress:      "not-a-valid-address",
+		ReceiptResultHash:  []byte("h-receipt"),
+		WorkerReceiptSig:   []byte("s-receipt"),
+		ReceivedOutputHash: []byte("h-received"),
+		WorkerContentSig:   []byte("s-content"),
 	}
 
 	err := k.ProcessFraudProof(ctx, msg)
@@ -1350,15 +1327,7 @@ func TestFraudProof_OnPendingAuditTask(t *testing.T) {
 	}
 
 	// Submit FraudProof for the pending audit task
-	chFraud, csFraud := signFraudContent(t, []byte("fraud-content"))
-	err = k.ProcessFraudProof(ctx, &types.MsgFraudProof{
-		Reporter:         userAddr.String(),
-		TaskId:           taskId,
-		WorkerAddress:    workerAddr.String(),
-		ContentHash:      chFraud,
-		WorkerContentSig: csFraud,
-		ActualContent:    []byte("fraud-content"),
-	})
+	err = k.ProcessFraudProof(ctx, makePhase2FraudMsg(t, userAddr.String(), workerAddr.String(), taskId))
 	if err != nil {
 		t.Fatalf("fraud proof on pending audit task should succeed: %v", err)
 	}

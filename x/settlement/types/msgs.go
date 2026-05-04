@@ -234,25 +234,57 @@ func (msg *MsgBatchReserve) GetSigners() []sdk.AccAddress {
 	return []sdk.AccAddress{proposer}
 }
 
-// -------- MsgFraudProof --------
-
+// -------- MsgFraudProof (Phase 2: receipt-vs-content contradiction proof) --------
+//
+// Phase 2 redesigns FraudProof around a Worker-signed contradiction:
+// the Worker promised (via the receipt sent to Verifiers / Proposer) that the
+// inference output hashes to ReceiptResultHash, but actually delivered content
+// hashing to ReceivedOutputHash, and these two are different. Both halves are
+// proven on-chain by verifying Worker's secp256k1 signature over the canonical
+// payload sha256(task_id || hash) — see ReceiptSigPayload / ContentSigPayload
+// in p2p/types/messages.go for the exact byte layout.
+//
+// Replaces the Phase 1 schema (ContentHash + ActualContent + WorkerContentSig)
+// which only attested self-consistency rather than fraud — a captured legitimate
+// signature could pair with its matching content and pass the bind check
+// without proving any wrongdoing. This pre-mainnet schema swap is the actual
+// security closure that Phase 1's fraud window + reporter binding were a
+// down-payment on.
 type MsgFraudProof struct {
-	Reporter         string `protobuf:"bytes,1,opt,name=reporter,proto3" json:"reporter"`
-	TaskId           []byte `protobuf:"bytes,2,opt,name=task_id,proto3" json:"task_id"`
-	WorkerAddress    string `protobuf:"bytes,3,opt,name=worker_address,proto3" json:"worker_address"`
-	ContentHash      []byte `protobuf:"bytes,4,opt,name=content_hash,proto3" json:"content_hash"`
-	WorkerContentSig []byte `protobuf:"bytes,5,opt,name=worker_content_sig,proto3" json:"worker_content_sig"`
-	ActualContent    []byte `protobuf:"bytes,6,opt,name=actual_content,proto3" json:"actual_content"`
+	Reporter      string `protobuf:"bytes,1,opt,name=reporter,proto3" json:"reporter"`
+	TaskId        []byte `protobuf:"bytes,2,opt,name=task_id,proto3" json:"task_id"`
+	WorkerAddress string `protobuf:"bytes,3,opt,name=worker_address,proto3" json:"worker_address"`
+
+	// ReceiptResultHash is the result_hash the Worker committed to inside the
+	// InferReceipt that went to Verifiers / Proposer. The user (or watchtower)
+	// captures this from the receipt published on /funai/receipt/<task_id>.
+	ReceiptResultHash []byte `protobuf:"bytes,4,opt,name=receipt_result_hash,proto3" json:"receipt_result_hash"`
+	// WorkerReceiptSig is the Worker's secp256k1 signature over
+	// p2ptypes.ReceiptSigPayload(task_id, receipt_result_hash) — i.e.
+	// sha256(task_id || receipt_result_hash). Bound to task_id so a sig from
+	// one task cannot be replayed in a FraudProof for a different task.
+	WorkerReceiptSig []byte `protobuf:"bytes,5,opt,name=worker_receipt_sig,proto3" json:"worker_receipt_sig"`
+
+	// ReceivedOutputHash is sha256(content) for the bytes the user actually
+	// received via the StreamToken stream.
+	ReceivedOutputHash []byte `protobuf:"bytes,6,opt,name=received_output_hash,proto3" json:"received_output_hash"`
+	// WorkerContentSig is the Worker's secp256k1 signature over
+	// p2ptypes.ContentSigPayload(task_id, received_output_hash) — i.e.
+	// sha256(task_id || received_output_hash). Same task_id binding rationale
+	// as WorkerReceiptSig.
+	WorkerContentSig []byte `protobuf:"bytes,7,opt,name=worker_content_sig,proto3" json:"worker_content_sig"`
 }
 
-func NewMsgFraudProof(reporter string, taskId []byte, workerAddress string, contentHash, workerContentSig, actualContent []byte) *MsgFraudProof {
+func NewMsgFraudProof(reporter string, taskId []byte, workerAddress string,
+	receiptResultHash, workerReceiptSig, receivedOutputHash, workerContentSig []byte) *MsgFraudProof {
 	return &MsgFraudProof{
-		Reporter:         reporter,
-		TaskId:           taskId,
-		WorkerAddress:    workerAddress,
-		ContentHash:      contentHash,
-		WorkerContentSig: workerContentSig,
-		ActualContent:    actualContent,
+		Reporter:           reporter,
+		TaskId:             taskId,
+		WorkerAddress:      workerAddress,
+		ReceiptResultHash:  receiptResultHash,
+		WorkerReceiptSig:   workerReceiptSig,
+		ReceivedOutputHash: receivedOutputHash,
+		WorkerContentSig:   workerContentSig,
 	}
 }
 
@@ -272,14 +304,17 @@ func (msg *MsgFraudProof) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.WorkerAddress); err != nil {
 		return sdkerrors.Wrap(err, "invalid worker address")
 	}
-	if len(msg.ContentHash) == 0 {
-		return sdkerrors.Wrap(ErrInvalidSettlement, "content_hash cannot be empty")
+	if len(msg.ReceiptResultHash) == 0 {
+		return sdkerrors.Wrap(ErrInvalidSettlement, "receipt_result_hash cannot be empty")
+	}
+	if len(msg.WorkerReceiptSig) == 0 {
+		return sdkerrors.Wrap(ErrInvalidSignature, "worker_receipt_sig cannot be empty")
+	}
+	if len(msg.ReceivedOutputHash) == 0 {
+		return sdkerrors.Wrap(ErrInvalidSettlement, "received_output_hash cannot be empty")
 	}
 	if len(msg.WorkerContentSig) == 0 {
 		return sdkerrors.Wrap(ErrInvalidSignature, "worker_content_sig cannot be empty")
-	}
-	if len(msg.ActualContent) == 0 {
-		return sdkerrors.Wrap(ErrInvalidSettlement, "actual_content cannot be empty")
 	}
 	return nil
 }
