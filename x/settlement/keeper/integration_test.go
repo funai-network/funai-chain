@@ -120,11 +120,7 @@ func TestIntegration_FullSettlementLifecycle(t *testing.T) {
 
 	// 5. FraudProof
 	fraudId := integrationTaskId(0)
-	fraudCH, fraudCS := signFraudContent(t, []byte("content"))
-	err = k.ProcessFraudProof(ctx, types.NewMsgFraudProof(
-		userAddr.String(), fraudId, workerAddr.String(),
-		fraudCH, fraudCS, []byte("content"),
-	))
+	err = k.ProcessFraudProof(ctx, makePhase2FraudMsg(t, userAddr.String(), workerAddr.String(), fraudId))
 	if err != nil {
 		t.Fatalf("FraudProof: %v", err)
 	}

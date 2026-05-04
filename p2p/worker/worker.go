@@ -334,7 +334,9 @@ func (w *Worker) HandleTask(ctx context.Context, task *p2ptypes.AssignTask, bloc
 			if st.IsFinal && len(w.PrivKey) == 32 {
 				contentHash := sha256.Sum256([]byte(completeOutput))
 				privKey := secp256k1.PrivKey(w.PrivKey)
-				sig, err := privKey.Sign(contentHash[:])
+				// FraudProof Phase 2: bind ContentSig to task_id so a captured
+				// signature can't be replayed in a FraudProof for a different task.
+				sig, err := privKey.Sign(p2ptypes.ContentSigPayload(task.TaskId, contentHash[:]))
 				if err == nil {
 					st.ContentSig = sig
 				}
@@ -364,7 +366,9 @@ func (w *Worker) HandleTask(ctx context.Context, task *p2ptypes.AssignTask, bloc
 			if isFinal && len(w.PrivKey) == 32 {
 				contentHash := sha256.Sum256([]byte(fullOutput.String()))
 				privKey := secp256k1.PrivKey(w.PrivKey)
-				sig, err := privKey.Sign(contentHash[:])
+				// FraudProof Phase 2: bind ContentSig to task_id so a captured
+				// signature can't be replayed in a FraudProof for a different task.
+				sig, err := privKey.Sign(p2ptypes.ContentSigPayload(task.TaskId, contentHash[:]))
 				if err == nil {
 					st.ContentSig = sig
 				}
@@ -460,6 +464,20 @@ func (w *Worker) HandleTask(ctx context.Context, task *p2ptypes.AssignTask, bloc
 
 	// S6: Worker must sign the InferReceipt as proof of work
 	receipt.WorkerSig = w.signReceipt(receipt)
+
+	// FraudProof Phase 2: minimal task-bound signature over
+	// sha256(task_id || result_hash). This is what the on-chain FraudProof
+	// handler verifies as the receipt-side half of the contradiction proof.
+	// Signed over the (possibly-tampered) ResultHash so a corrupt worker who
+	// tampers the receipt also produces a ReceiptSig committing to the
+	// tampered hash — which the SDK can then prove against the real
+	// ContentSig delivered to the user.
+	if len(w.PrivKey) == 32 {
+		privKey := secp256k1.PrivKey(w.PrivKey)
+		if sig, err := privKey.Sign(p2ptypes.ReceiptSigPayload(task.TaskId, receipt.ResultHash)); err == nil {
+			receipt.ReceiptSig = sig
+		}
+	}
 
 	receiptData, _ := json.Marshal(receipt)
 	topic := p2phost.ModelTopic(string(task.ModelId))

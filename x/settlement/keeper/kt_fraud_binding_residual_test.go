@@ -41,15 +41,7 @@ func TestKT_Issue5_2_FraudProof_RejectsTaskWithNoChainFootprint(t *testing.T) {
 
 	// Build a properly-signed fraud proof — but the keeper has NO record of
 	// this taskId (no SettledTask, no pending audit, no FrozenBalanceKey).
-	contentHash, contentSig := signFraudContent(t, []byte("any-content"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i52-rep").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("any-content"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("kt-i52-rep").String(), worker.String(), taskId)
 
 	err := k.ProcessFraudProof(ctx, msg)
 	if err == nil {
@@ -76,15 +68,7 @@ func TestKT_Issue5_2_FraudProof_AcceptsWhenSettledTaskExists(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i52-rep-2").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("kt-i52-rep-2").String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("Issue 5.2: with SettledTask footprint must succeed: %v", err)
 	}
@@ -106,15 +90,7 @@ func TestKT_Issue5_2_FraudProof_AcceptsWhenAuditPending(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("d"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i52-rep-3").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("d"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("kt-i52-rep-3").String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("Issue 5.2: with pending audit must succeed: %v", err)
 	}
@@ -140,15 +116,7 @@ func TestKT_Issue5_3_FraudProof_RejectsWrongWorkerAddress(t *testing.T) {
 	})
 
 	// Attacker submits with otherWorker's address — must be rejected.
-	contentHash, contentSig := signFraudContent(t, []byte("any"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i53-attacker").String(),
-		TaskId:           taskId,
-		WorkerAddress:    otherWorker.String(), // wrong worker
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("any"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("kt-i53-attacker").String(), otherWorker.String(), taskId)
 	err := k.ProcessFraudProof(ctx, msg)
 	if err == nil {
 		t.Fatal("Issue 5.3: must reject FraudProof when msg.WorkerAddress != settledTask.WorkerAddress")
@@ -201,15 +169,7 @@ func TestKT_Issue5_4_FraudMark_BlocksLaterAuditedSettle(t *testing.T) {
 
 	// Step 2: SDK reports fraud — fraud mark set, status flipped to TaskFraud.
 	// Reporter == user is required by FraudProof Phase 1 reporter-binding check.
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	if err := k.ProcessFraudProof(ctx, &types.MsgFraudProof{
-		Reporter:         user.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}); err != nil {
+	if err := k.ProcessFraudProof(ctx, makePhase2FraudMsg(t, user.String(), worker.String(), taskId)); err != nil {
 		t.Fatalf("FraudProof must succeed for matched binding: %v", err)
 	}
 	post1, _ := k.GetSettledTask(ctx, taskId)
@@ -264,15 +224,7 @@ func TestKT_Issue5_5_FraudProof_DuplicateIsIdempotent(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i55-rep").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("kt-i55-rep").String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("first proof must succeed: %v", err)
 	}

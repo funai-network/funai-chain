@@ -55,15 +55,7 @@ func runFraudProofWithPubkeyFormat(t *testing.T, label, pubkeyOverride string) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("content"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i4-rep").String(),
-		TaskId:           taskId,
-		WorkerAddress:    workerAddr.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("content"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("kt-i4-rep").String(), workerAddr.String(), taskId)
 
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("[%s] FraudProof must succeed with %s-encoded pubkey: %v", label, label, err)

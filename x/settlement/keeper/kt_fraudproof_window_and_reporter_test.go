@@ -48,15 +48,7 @@ func TestFraudProof_Window_SettledTask_AcceptsInsideWindow(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         user.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, user.String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("inside window must succeed: %v", err)
 	}
@@ -86,15 +78,7 @@ func TestFraudProof_Window_SettledTask_RejectsOutsideWindow(t *testing.T) {
 	farFuture := settledAt + int64(types.DefaultFraudWindowBlocks) + 1
 	futureCtx := ctx.WithBlockHeader(cmtproto.Header{Height: farFuture})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         user.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, user.String(), worker.String(), taskId)
 	err := k.ProcessFraudProof(futureCtx, msg)
 	if err == nil {
 		t.Fatal("outside window must reject")
@@ -123,15 +107,7 @@ func TestFraudProof_Window_SettledTask_GracefulOnLegacyZeroSettledAt(t *testing.
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         user.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, user.String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("legacy SettledAt=0 must skip window check, got: %v", err)
 	}
@@ -161,15 +137,7 @@ func TestFraudProof_Window_PendingAudit_RejectsOutsideWindow(t *testing.T) {
 	farFuture := submittedAt + int64(types.DefaultFraudWindowBlocks) + 1
 	futureCtx := ctx.WithBlockHeader(cmtproto.Header{Height: farFuture})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         user.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, user.String(), worker.String(), taskId)
 	err := k.ProcessFraudProof(futureCtx, msg)
 	if err == nil {
 		t.Fatal("outside pending audit window must reject")
@@ -197,15 +165,8 @@ func TestFraudProof_ReporterBinding_SettledTask_RejectsMismatch(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         intruder.String(), // not the task user
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	// intruder is not the task user — must be rejected.
+	msg := makePhase2FraudMsg(t, intruder.String(), worker.String(), taskId)
 	err := k.ProcessFraudProof(ctx, msg)
 	if err == nil {
 		t.Fatal("reporter ≠ task user must reject")
@@ -231,15 +192,7 @@ func TestFraudProof_ReporterBinding_SettledTask_AcceptsMatch(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         user.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, user.String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("matching reporter must succeed: %v", err)
 	}
@@ -262,15 +215,7 @@ func TestFraudProof_ReporterBinding_GracefulOnLegacyEmptyUser(t *testing.T) {
 		Fee:           sdk.NewCoin("ufai", math.NewInt(100)),
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         makeAddr("frbst-legacy-rep").String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, makeAddr("frbst-legacy-rep").String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("legacy empty UserAddress must skip reporter binding, got: %v", err)
 	}
@@ -297,15 +242,7 @@ func TestFraudProof_ReporterBinding_PendingAudit_RejectsMismatch(t *testing.T) {
 		ExpireBlock:   100000,
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         intruder.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, intruder.String(), worker.String(), taskId)
 	err := k.ProcessFraudProof(ctx, msg)
 	if err == nil {
 		t.Fatal("reporter ≠ task user (pending audit path) must reject")
@@ -398,15 +335,7 @@ func TestFraudProof_BothFootprints_SettledWins(t *testing.T) {
 		ExpireBlock:   100000,
 	})
 
-	contentHash, contentSig := signFraudContent(t, []byte("c"))
-	msg := &types.MsgFraudProof{
-		Reporter:         user.String(),
-		TaskId:           taskId,
-		WorkerAddress:    worker.String(),
-		ContentHash:      contentHash,
-		WorkerContentSig: contentSig,
-		ActualContent:    []byte("c"),
-	}
+	msg := makePhase2FraudMsg(t, user.String(), worker.String(), taskId)
 	if err := k.ProcessFraudProof(ctx, msg); err != nil {
 		t.Fatalf("dual footprint with matching reporter must succeed: %v", err)
 	}
