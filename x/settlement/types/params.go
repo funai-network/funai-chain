@@ -33,6 +33,15 @@ const (
 	DefaultTokenMismatchLookback                 uint32 = 100   // sliding window size for pair stats (S9 §5.2.3)
 	DefaultTokenMismatchDeviationPct             uint32 = 20    // deviation threshold to count as mismatch
 	DefaultTokenMismatchPairMinSamples           uint32 = 5     // min samples before pair is considered
+
+	// FraudProof window: blocks within which a FraudProof may be submitted,
+	// counted from the task's chain footprint timestamp (SettledAt for settled
+	// tasks, SubmittedAt for tasks pending second verification). Outside the
+	// window the proof is rejected without state change. Default 17280 ≈ 24h
+	// at 5s/block; matches the upper bound in V5.2 §12.4 design discussion
+	// for image / video / large-payload tasks. Per-task-type windows are a
+	// follow-up (see FraudProof Phase 2 spec).
+	DefaultFraudWindowBlocks uint64 = 17280
 )
 
 type Params struct {
@@ -68,6 +77,9 @@ type Params struct {
 	TokenMismatchLookback                 uint32 `protobuf:"varint,25,opt,name=token_mismatch_lookback,proto3" json:"token_mismatch_lookback"`
 	TokenMismatchDeviationPct             uint32 `protobuf:"varint,26,opt,name=token_mismatch_deviation_pct,proto3" json:"token_mismatch_deviation_pct"`
 	TokenMismatchPairMinSamples           uint32 `protobuf:"varint,27,opt,name=token_mismatch_pair_min_samples,proto3" json:"token_mismatch_pair_min_samples"`
+
+	// FraudProof submission window in blocks (from footprint timestamp).
+	FraudWindowBlocks uint64 `protobuf:"varint,28,opt,name=fraud_window_blocks,proto3" json:"fraud_window_blocks"`
 }
 
 func (m *Params) ProtoMessage()  {}
@@ -102,6 +114,7 @@ func DefaultParams() Params {
 		TokenMismatchLookback:                 DefaultTokenMismatchLookback,
 		TokenMismatchDeviationPct:             DefaultTokenMismatchDeviationPct,
 		TokenMismatchPairMinSamples:           DefaultTokenMismatchPairMinSamples,
+		FraudWindowBlocks:                     DefaultFraudWindowBlocks,
 	}
 }
 
@@ -161,6 +174,9 @@ func (p Params) Validate() error {
 	// S9: per-token billing param validation
 	if p.DishonestJailThreshold == 0 {
 		return fmt.Errorf("dishonest_jail_threshold must be positive")
+	}
+	if p.FraudWindowBlocks == 0 {
+		return fmt.Errorf("fraud_window_blocks must be positive")
 	}
 	return nil
 }

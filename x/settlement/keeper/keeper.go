@@ -1150,6 +1150,7 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 					SettledAt:         currentHeight,
 					WorkerAddress:     entry.WorkerAddress,
 					OriginalVerifiers: verifierAddrs,
+					UserAddress:       entry.UserAddress,
 				})
 
 				writeFn()
@@ -1450,9 +1451,11 @@ func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) err
 	// If none of these exist, the task is unknown to the chain and the fraud
 	// claim cannot be honored.
 	settledTask, settledFound := k.GetSettledTask(ctx, msg.TaskId)
+	var pendingAudit types.SecondVerificationPendingTask
 	hasPending := false
 	if !settledFound {
-		if _, found := k.GetSecondVerificationPending(ctx, msg.TaskId); found {
+		if p, found := k.GetSecondVerificationPending(ctx, msg.TaskId); found {
+			pendingAudit = p
 			hasPending = true
 		}
 	}
@@ -1476,6 +1479,43 @@ func (k Keeper) ProcessFraudProof(ctx sdk.Context, msg *types.MsgFraudProof) err
 	if settledFound && settledTask.WorkerAddress != "" && settledTask.WorkerAddress != msg.WorkerAddress {
 		return fmt.Errorf("FraudProof: msg.WorkerAddress %s does not match settled task's worker %s",
 			msg.WorkerAddress, settledTask.WorkerAddress)
+	}
+
+	// FraudProof Phase 1: fraud window + reporter binding.
+	// Closes two gaps left by the original V5.2 §12.4 design:
+	//   1. No time bound — historic tasks remained indefinitely exposed to
+	//      the slashing entry.
+	//   2. No reporter binding — any registered address could submit
+	//      FraudProof on someone else's task as long as a (ContentHash, sig)
+	//      pair was available.
+	// Both checks gracefully no-op when the relevant footprint field is
+	// zero / empty (legacy state written before this change). The frozen-only
+	// path (no SettledTask, no pending audit, just a reservation) is
+	// intentionally exempt: there is no efficient TaskID→FrozenTaskMeta
+	// lookup, and the implicit ≤ SignatureExpireMax bound from expire_block
+	// is the working substitute. To be revisited when migrating to the
+	// proposed MsgDirectFraudProof schema (see follow-up spec).
+	params := k.GetParams(ctx)
+	currentHeight := ctx.BlockHeight()
+	if settledFound {
+		if settledTask.SettledAt > 0 && currentHeight > settledTask.SettledAt+int64(params.FraudWindowBlocks) {
+			return fmt.Errorf("FraudProof: window expired (settled_at=%d, current=%d, window=%d blocks)",
+				settledTask.SettledAt, currentHeight, params.FraudWindowBlocks)
+		}
+		if settledTask.UserAddress != "" && settledTask.UserAddress != msg.Reporter {
+			return fmt.Errorf("FraudProof: reporter %s is not the task user (%s)",
+				msg.Reporter, settledTask.UserAddress)
+		}
+	}
+	if hasPending {
+		if pendingAudit.SubmittedAt > 0 && currentHeight > pendingAudit.SubmittedAt+int64(params.FraudWindowBlocks) {
+			return fmt.Errorf("FraudProof: window expired (submitted_at=%d, current=%d, window=%d blocks)",
+				pendingAudit.SubmittedAt, currentHeight, params.FraudWindowBlocks)
+		}
+		if pendingAudit.UserAddress != "" && pendingAudit.UserAddress != msg.Reporter {
+			return fmt.Errorf("FraudProof: reporter %s is not the task user (%s)",
+				msg.Reporter, pendingAudit.UserAddress)
+		}
 	}
 
 	// KT Issue 5: bind ActualContent to ContentHash before trusting either.
@@ -1790,6 +1830,7 @@ func (k Keeper) processAuditJudgment(ctx sdk.Context, ar types.SecondVerificatio
 				SettledAt:         ctx.BlockHeight(),
 				WorkerAddress:     apt.WorkerAddress,
 				OriginalVerifiers: apt.VerifierAddresses,
+				UserAddress:       apt.UserAddress,
 			})
 			settled = true
 		} else if apt.OriginalStatus == types.SettlementFail && auditPass {
@@ -1853,6 +1894,7 @@ func (k Keeper) processAuditJudgment(ctx sdk.Context, ar types.SecondVerificatio
 			SettledAt:         ctx.BlockHeight(),
 			WorkerAddress:     apt.WorkerAddress,
 			OriginalVerifiers: apt.VerifierAddresses,
+			UserAddress:       apt.UserAddress,
 		})
 		settled = true
 	} else if !origAuditPass && auditPass {
@@ -1877,6 +1919,7 @@ func (k Keeper) processAuditJudgment(ctx sdk.Context, ar types.SecondVerificatio
 					SettledAt:         ctx.BlockHeight(),
 					WorkerAddress:     apt.WorkerAddress,
 					OriginalVerifiers: apt.VerifierAddresses,
+					UserAddress:       apt.UserAddress,
 				})
 				settled = true
 			} else {
@@ -2006,6 +2049,7 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 			SettledAt:         ctx.BlockHeight(),
 			WorkerAddress:     apt.WorkerAddress,
 			OriginalVerifiers: apt.VerifierAddresses,
+			UserAddress:       apt.UserAddress,
 		})
 
 		writeFn()
@@ -2040,6 +2084,7 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 		SettledAt:         ctx.BlockHeight(),
 		WorkerAddress:     apt.WorkerAddress,
 		OriginalVerifiers: apt.VerifierAddresses,
+		UserAddress:       apt.UserAddress,
 	})
 
 	writeFn()
