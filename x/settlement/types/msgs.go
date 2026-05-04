@@ -298,20 +298,28 @@ func (msg *MsgFraudProof) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Reporter); err != nil {
 		return sdkerrors.Wrap(err, "invalid reporter address")
 	}
-	if len(msg.TaskId) == 0 {
-		return sdkerrors.Wrap(ErrInvalidSettlement, "task_id cannot be empty")
+	// PR #54 review: enforce strict 32-byte (SHA-256) length on all hash
+	// fields at the mempool gate so malformed-length tx never reach the
+	// keeper. Production task_id = SHA256(user_pubkey || model_id ||
+	// prompt_hash || timestamp); receipt_result_hash and received_output_hash
+	// are SHA-256 of inference outputs. Keeper-level tests bypass
+	// ValidateBasic and may use shorter task_id literals for readability —
+	// that's intentional, the ProcessFraudProof handler does not duplicate
+	// the length check.
+	if len(msg.TaskId) != 32 {
+		return sdkerrors.Wrapf(ErrInvalidSettlement, "task_id must be 32 bytes, got %d", len(msg.TaskId))
 	}
 	if _, err := sdk.AccAddressFromBech32(msg.WorkerAddress); err != nil {
 		return sdkerrors.Wrap(err, "invalid worker address")
 	}
-	if len(msg.ReceiptResultHash) == 0 {
-		return sdkerrors.Wrap(ErrInvalidSettlement, "receipt_result_hash cannot be empty")
+	if len(msg.ReceiptResultHash) != 32 {
+		return sdkerrors.Wrapf(ErrInvalidSettlement, "receipt_result_hash must be 32 bytes, got %d", len(msg.ReceiptResultHash))
 	}
 	if len(msg.WorkerReceiptSig) == 0 {
 		return sdkerrors.Wrap(ErrInvalidSignature, "worker_receipt_sig cannot be empty")
 	}
-	if len(msg.ReceivedOutputHash) == 0 {
-		return sdkerrors.Wrap(ErrInvalidSettlement, "received_output_hash cannot be empty")
+	if len(msg.ReceivedOutputHash) != 32 {
+		return sdkerrors.Wrapf(ErrInvalidSettlement, "received_output_hash must be 32 bytes, got %d", len(msg.ReceivedOutputHash))
 	}
 	if len(msg.WorkerContentSig) == 0 {
 		return sdkerrors.Wrap(ErrInvalidSignature, "worker_content_sig cannot be empty")
