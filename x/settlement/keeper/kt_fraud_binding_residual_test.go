@@ -200,9 +200,10 @@ func TestKT_Issue5_4_FraudMark_BlocksLaterAuditedSettle(t *testing.T) {
 	})
 
 	// Step 2: SDK reports fraud — fraud mark set, status flipped to TaskFraud.
+	// Reporter == user is required by FraudProof Phase 1 reporter-binding check.
 	contentHash, contentSig := signFraudContent(t, []byte("c"))
 	if err := k.ProcessFraudProof(ctx, &types.MsgFraudProof{
-		Reporter:         makeAddr("kt-i54-rep").String(),
+		Reporter:         user.String(),
 		TaskId:           taskId,
 		WorkerAddress:    worker.String(),
 		ContentHash:      contentHash,
