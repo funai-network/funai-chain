@@ -364,6 +364,13 @@ func (c *Client) Infer(ctx context.Context, params InferParams) (*InferResult, e
 			if err := json.Unmarshal(msg.Data, &receipt); err != nil {
 				continue
 			}
+			// PR #54 review: filter by receipt.TaskId so a stray pubsub
+			// message routed onto this per-task topic (or a future shared
+			// topic) cannot inject a different-task receipt that would then
+			// be carried into a FraudProof for our task.
+			if !bytes.Equal(receipt.TaskId, taskId) {
+				continue
+			}
 			select {
 			case receiptCh <- &receipt:
 			default:
@@ -501,6 +508,13 @@ func (c *Client) Infer(ctx context.Context, params InferParams) (*InferResult, e
 					log.Printf("SDK: Worker receipt signature invalid for task %x, ignoring candidate", taskId[:8])
 					continue
 				}
+				// PR #54 review: also verify the Phase 2 ReceiptSig locally —
+				// the chain does this too, but a SDK-side filter avoids paying
+				// gas on a FraudProof that would be rejected on-chain.
+				if !verifyReceiptSigPhase2(r) {
+					log.Printf("SDK: Phase 2 ReceiptSig invalid for task %x, ignoring candidate", taskId[:8])
+					continue
+				}
 				if bytes.Equal(resultHash[:], r.ResultHash) {
 					continue
 				}
@@ -536,6 +550,23 @@ func verifyWorkerReceiptSig(receipt *p2ptypes.InferReceipt) bool {
 	}
 	pk := secp256k1.PubKey(receipt.WorkerPubkey)
 	return pk.VerifySignature(receipt.SignBytes(), receipt.WorkerSig)
+}
+
+// verifyReceiptSigPhase2 checks the minimal task-bound receipt signature
+// added in FraudProof Phase 2 (p2ptypes.ReceiptSigPayload). The chain
+// performs the same check before slashing; SDK-side verification is
+// defense-in-depth — a corrupt or wrong-key sig surfaced here lets the
+// SDK skip the candidate before paying the gas to broadcast a tx that
+// would only be rejected on-chain.
+func verifyReceiptSigPhase2(receipt *p2ptypes.InferReceipt) bool {
+	if receipt == nil {
+		return false
+	}
+	if len(receipt.WorkerPubkey) != 33 || len(receipt.ReceiptSig) == 0 {
+		return false
+	}
+	pk := secp256k1.PubKey(receipt.WorkerPubkey)
+	return pk.VerifySignature(p2ptypes.ReceiptSigPayload(receipt.TaskId, receipt.ResultHash), receipt.ReceiptSig)
 }
 
 // submitFraudProof submits a MsgFraudProof to the chain when Worker sends
