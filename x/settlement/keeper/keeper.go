@@ -1150,6 +1150,7 @@ func (k Keeper) ProcessBatchSettlement(ctx sdk.Context, msg *types.MsgBatchSettl
 					SettledAt:         currentHeight,
 					WorkerAddress:     entry.WorkerAddress,
 					OriginalVerifiers: verifierAddrs,
+					UserAddress:       entry.UserAddress,
 				})
 
 				writeFn()
@@ -1829,6 +1830,7 @@ func (k Keeper) processAuditJudgment(ctx sdk.Context, ar types.SecondVerificatio
 				SettledAt:         ctx.BlockHeight(),
 				WorkerAddress:     apt.WorkerAddress,
 				OriginalVerifiers: apt.VerifierAddresses,
+				UserAddress:       apt.UserAddress,
 			})
 			settled = true
 		} else if apt.OriginalStatus == types.SettlementFail && auditPass {
@@ -1892,6 +1894,7 @@ func (k Keeper) processAuditJudgment(ctx sdk.Context, ar types.SecondVerificatio
 			SettledAt:         ctx.BlockHeight(),
 			WorkerAddress:     apt.WorkerAddress,
 			OriginalVerifiers: apt.VerifierAddresses,
+			UserAddress:       apt.UserAddress,
 		})
 		settled = true
 	} else if !origAuditPass && auditPass {
@@ -1916,6 +1919,7 @@ func (k Keeper) processAuditJudgment(ctx sdk.Context, ar types.SecondVerificatio
 					SettledAt:         ctx.BlockHeight(),
 					WorkerAddress:     apt.WorkerAddress,
 					OriginalVerifiers: apt.VerifierAddresses,
+					UserAddress:       apt.UserAddress,
 				})
 				settled = true
 			} else {
@@ -2045,6 +2049,7 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 			SettledAt:         ctx.BlockHeight(),
 			WorkerAddress:     apt.WorkerAddress,
 			OriginalVerifiers: apt.VerifierAddresses,
+			UserAddress:       apt.UserAddress,
 		})
 
 		writeFn()
@@ -2079,6 +2084,7 @@ func (k Keeper) settleAuditedTask(ctx sdk.Context, apt types.SecondVerificationP
 		SettledAt:         ctx.BlockHeight(),
 		WorkerAddress:     apt.WorkerAddress,
 		OriginalVerifiers: apt.VerifierAddresses,
+		UserAddress:       apt.UserAddress,
 	})
 
 	writeFn()

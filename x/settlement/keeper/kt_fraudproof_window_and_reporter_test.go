@@ -312,6 +312,65 @@ func TestFraudProof_ReporterBinding_PendingAudit_RejectsMismatch(t *testing.T) {
 	}
 }
 
+// ============================================================
+// Regression: audit re-settle paths must populate UserAddress
+// ============================================================
+
+// External review on PR #53 flagged that the new reporter binding silently
+// no-ops when the on-chain SettledTask has UserAddress="" (legacy migration
+// path). For the binding to be effective post-upgrade, every newly-written
+// SettledTask must carry UserAddress. This test pins the audit-re-settle
+// path: SecondVerificationPending → 3 PASS results → settleAuditedTask
+// SUCCESS branch → SettledTask. The resulting SettledTask MUST have
+// UserAddress populated for FraudProof's reporter binding to work.
+func TestFraudProof_AuditResettle_PopulatesUserAddress(t *testing.T) {
+	k, ctx, _, _ := setupKeeper(t)
+	k.SetCurrentSecondVerificationRate(ctx, 0)
+	k.SetCurrentThirdVerificationRate(ctx, 0)
+
+	user := makeAddr("frar-user")
+	worker := makeAddr("frar-worker")
+	taskId := []byte("frar-audit-resettle01")
+
+	_ = k.ProcessDeposit(ctx, user, sdk.NewCoin("ufai", math.NewInt(10_000_000)))
+
+	k.SetSecondVerificationPending(ctx, types.SecondVerificationPendingTask{
+		TaskId:            taskId,
+		OriginalStatus:    types.SettlementSuccess,
+		SubmittedAt:       ctx.BlockHeight(),
+		WorkerAddress:     worker.String(),
+		UserAddress:       user.String(),
+		VerifierAddresses: []string{makeAddr("frar-orig-v1").String()},
+		Fee:               sdk.NewCoin("ufai", math.NewInt(1_000_000)),
+		ExpireBlock:       100000,
+	})
+
+	for i := 0; i < 3; i++ {
+		err := k.ProcessSecondVerificationResult(ctx, &types.MsgSecondVerificationResult{
+			SecondVerifier: makeAddr("frar-aud-v" + string(rune('0'+i))).String(),
+			TaskId:         taskId,
+			Epoch:          1,
+			Pass:           true,
+			LogitsHash:     []byte("h"),
+		})
+		if err != nil {
+			t.Fatalf("audit result %d: %v", i, err)
+		}
+	}
+
+	st, found := k.GetSettledTask(ctx, taskId)
+	if !found {
+		t.Fatal("SettledTask must exist after audit completion")
+	}
+	if st.UserAddress != user.String() {
+		t.Fatalf("audit-resettled SettledTask must carry UserAddress=%s, got %q",
+			user.String(), st.UserAddress)
+	}
+	if st.SettledAt == 0 {
+		t.Fatal("audit-resettled SettledTask must carry non-zero SettledAt")
+	}
+}
+
 // Sanity: when both SettledTask and SecondVerificationPending exist (a task
 // that was settled into PendingSecondVerification status), the SettledTask
 // binding wins. This mirrors the existing footprint resolution order.
